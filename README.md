@@ -1,79 +1,104 @@
-# HA-Powercard
+# HA-Powercard v2.0
 
 [![GitHub release](https://img.shields.io/github/v/release/rellis-erigon/HA-Powercard?style=flat-square)](https://github.com/rellis-erigon/HA-Powercard/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=flat-square)](https://hacs.xyz)
 
-A novel Home Assistant Lovelace card that visualizes power distribution in a **physical distribution board** style, showing circuit breakers, animated power flows, and device-level consumption data.
+A Home Assistant Lovelace card that visualizes power distribution in a **physical distribution board** style with **full GUI configuration** — no YAML required!
 
-![HA-Powercard Preview](docs/preview.gif)
+![HA-Powercard Preview](docs/preview.png)
+
+## ✨ What's New in v2.0
+
+- 🎛️ **Complete Visual Editor** — Configure everything through the GUI
+- ➕ **Add/Remove Circuit Breakers** — Manage breakers without touching YAML
+- 📱 **Add/Remove Devices** — Assign devices to each breaker visually
+- 🔋 **Battery Support** — Show battery with state of charge
+- 🎨 **Professional Design** — Refined, modern interface
+- ⚡ **Improved Animations** — Smoother, more realistic power flow
+- 🌈 **Customizable Accent Color** — Match your dashboard theme
 
 ## Features
 
-- 🔌 **Distribution Board Layout** - Realistic electrical panel visualization
-- ⚡ **Animated Power Flow** - Yellow animated lines showing real-time power movement
-- 📊 **Circuit Breaker Details** - Daily totals (kWh), live current (A), and power (W)
-- 🌞 **Solar Integration** - Display solar panel input with animated flow
-- 🔋 **Grid Connection** - Show grid power import/export
-- 📱 **Expandable Device Tables** - Click breakers to see connected devices
-- 🎨 **Dark/Light Themes** - Automatic theme support
-- 🖱️ **Interactive** - Click entities for more-info dialogs
+- 🔌 **Distribution Board Layout** — Realistic electrical panel visualization
+- ⚡ **Animated Power Flow** — Particle animations showing real-time power movement
+- 📊 **Circuit Breaker Details** — Daily totals (kWh), live current (A), and power (W)
+- 🌞 **Solar Integration** — Display solar panel input with animated flow
+- 🔋 **Battery Integration** — Show battery power and state of charge
+- 🔌 **Grid Connection** — Show grid power import/export
+- 📱 **Expandable Device Tables** — Click breakers to see connected devices
+- 🎨 **Theme Support** — Works with light and dark themes
 
 ## Installation
 
 ### HACS (Recommended)
 
 1. Open HACS in Home Assistant
-2. Click the three dots menu → Custom repositories
-3. Add `https://github.com/rellis-erigon/HA-Powercard` as a Lovelace repository
+2. Click the three dots menu → **Custom repositories**
+3. Add `https://github.com/rellis-erigon/HA-Powercard` as a **Lovelace** repository
 4. Search for "HA Powercard" and install
-5. Refresh your browser
+5. Refresh your browser (Ctrl+F5)
 
 ### Manual Installation
 
 1. Download `ha-powercard.js` from the [latest release](https://github.com/rellis-erigon/HA-Powercard/releases)
 2. Copy to your `config/www/` directory
-3. Add the resource to your Lovelace configuration:
+3. Add the resource in Home Assistant:
+   - Settings → Dashboards → Three dots → Resources
+   - Add `/local/ha-powercard.js` as JavaScript Module
+4. Refresh your browser
 
-```yaml
-resources:
-  - url: /local/ha-powercard.js
-    type: module
-```
+## Quick Start
 
-4. Restart Home Assistant
+1. Go to your dashboard and click **Edit**
+2. Click **+ Add Card**
+3. Search for **"HA Powercard"**
+4. Use the **Visual Editor** to configure:
+   - General settings (title, accent color)
+   - Power sources (solar, battery, grid)
+   - Main breaker entities
+   - Circuit breakers and devices
 
-## Configuration
+That's it! No YAML needed.
 
-### Minimal Configuration
+## Visual Editor Guide
+
+### General Tab
+- **Card Title** — Name shown at the top
+- **Accent Color** — Primary color for the busbar and highlights
+- **Animation Speed** — How fast particles flow (lower = faster)
+
+### Power Sources Tab
+- Toggle **Solar**, **Grid**, and **Battery** on/off
+- Set display names and entities for each source
+- Battery supports a separate State of Charge entity
+
+### Main Breaker Tab
+- Configure the main circuit breaker
+- Set Power (W), Energy (kWh daily), and Current (A) entities
+
+### Circuit Breakers Tab
+- Click **"Add Circuit Breaker"** to add new breakers
+- Click the **edit icon** to configure each breaker
+- Within each breaker, click **"Add Device"** to add connected devices
+- Each device can have:
+  - Name and icon
+  - Power entity (current consumption)
+  - Average hourly entity
+  - Daily energy entity
+
+## YAML Configuration (Optional)
+
+While the GUI editor handles everything, you can also use YAML:
 
 ```yaml
 type: custom:ha-powercard
-title: My Distribution Board
-solar:
-  entity: sensor.solar_power
-grid:
-  entity: sensor.grid_power
-main_breaker:
-  entity_power: sensor.main_power
-  entity_energy: sensor.main_energy_daily
-  entity_current: sensor.main_current
-circuit_breakers:
-  - name: CB-1 Lights
-    entity_power: sensor.lights_power
-    entity_energy: sensor.lights_energy_daily
-    entity_current: sensor.lights_current
-```
-
-### Full Configuration
-
-```yaml
-type: custom:ha-powercard
-title: Distribution Board
-theme: dark  # or 'light'
+title: My Power Board
+accent_color: '#f59e0b'
 animation_speed: 2
 show_solar: true
 show_grid: true
+show_battery: true
 
 solar:
   entity: sensor.solar_power
@@ -83,11 +108,16 @@ grid:
   entity: sensor.grid_power
   name: Grid
 
+battery:
+  entity: sensor.battery_power
+  entity_soc: sensor.battery_soc
+  name: Battery
+
 main_breaker:
+  name: Main CB
   entity_power: sensor.main_power
   entity_energy: sensor.main_energy_daily
   entity_current: sensor.main_current
-  name: Main CB
 
 circuit_breakers:
   - name: CB-1 Kitchen
@@ -103,175 +133,88 @@ circuit_breakers:
       - name: Oven
         icon: mdi:stove
         entity: sensor.oven_power
-        entity_avg: sensor.oven_avg_hourly
-        entity_daily: sensor.oven_energy_daily
 
   - name: CB-2 Living Room
     entity_power: sensor.living_room_power
     entity_energy: sensor.living_room_energy_daily
     entity_current: sensor.living_room_current
-    devices:
-      - name: TV
-        icon: mdi:television
-        entity: sensor.tv_power
-        entity_avg: sensor.tv_avg_hourly
-        entity_daily: sensor.tv_energy_daily
-      - name: Sound System
-        icon: mdi:speaker
-        entity: sensor.sound_power
-        entity_avg: sensor.sound_avg_hourly
-        entity_daily: sensor.sound_energy_daily
-
-  - name: CB-3 Bedrooms
-    entity_power: sensor.bedrooms_power
-    entity_energy: sensor.bedrooms_energy_daily
-    entity_current: sensor.bedrooms_current
-
-  - name: CB-4 HVAC
-    entity_power: sensor.hvac_power
-    entity_energy: sensor.hvac_energy_daily
-    entity_current: sensor.hvac_current
-
-  - name: CB-5 Garage
-    entity_power: sensor.garage_power
-    entity_energy: sensor.garage_energy_daily
-    entity_current: sensor.garage_current
-    devices:
-      - name: EV Charger
-        icon: mdi:ev-station
-        entity: sensor.ev_charger_power
-        entity_avg: sensor.ev_charger_avg_hourly
-        entity_daily: sensor.ev_charger_energy_daily
 ```
 
-## Configuration Options
+## Configuration Reference
 
 ### Card Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `type` | string | **required** | Must be `custom:ha-powercard` |
-| `title` | string | `Distribution Board` | Title shown at top of the board |
-| `theme` | string | `dark` | Theme: `dark` or `light` |
-| `animation_speed` | number | `2` | Base animation speed in seconds |
-| `show_solar` | boolean | `true` | Show solar panel box |
-| `show_grid` | boolean | `true` | Show grid connection box |
+| `title` | string | `Distribution Board` | Title shown at top |
+| `accent_color` | string | `#f59e0b` | Accent color (hex) |
+| `animation_speed` | number | `2` | Animation speed (seconds) |
+| `show_solar` | boolean | `true` | Show solar source |
+| `show_grid` | boolean | `true` | Show grid source |
+| `show_battery` | boolean | `false` | Show battery source |
 
-### Solar Configuration
+### Source Configuration
+
+**Solar / Grid:**
+| Option | Type | Description |
+|--------|------|-------------|
+| `entity` | string | Power sensor entity |
+| `name` | string | Display name |
+
+**Battery:**
+| Option | Type | Description |
+|--------|------|-------------|
+| `entity` | string | Power sensor entity |
+| `entity_soc` | string | State of charge entity (%) |
+| `name` | string | Display name |
+
+### Breaker Configuration
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `entity` | string | Power sensor entity (W or kW) |
-| `name` | string | Display name (default: "Solar") |
-
-### Grid Configuration
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `entity` | string | Power sensor entity (W or kW) |
-| `name` | string | Display name (default: "Grid") |
-
-### Main Breaker Configuration
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `entity_power` | string | Current power consumption (W) |
-| `entity_energy` | string | Daily energy total (kWh) |
-| `entity_current` | string | Current in amps (A) |
-| `name` | string | Display name (default: "Main CB") |
-
-### Circuit Breaker Configuration
-
-Each circuit breaker in the `circuit_breakers` array can have:
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `name` | string | Breaker name (e.g., "CB-1 Kitchen") |
-| `entity_power` | string | Current power consumption (W) |
-| `entity_energy` | string | Daily energy total (kWh) |
-| `entity_current` | string | Current in amps (A) |
-| `devices` | array | List of devices on this circuit |
+| `name` | string | Breaker display name |
+| `entity_power` | string | Current power (W) |
+| `entity_energy` | string | Daily energy (kWh) |
+| `entity_current` | string | Current (A) |
+| `devices` | array | List of connected devices |
 
 ### Device Configuration
-
-Each device in the `devices` array can have:
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `name` | string | Device name |
 | `icon` | string | MDI icon (e.g., `mdi:fridge`) |
 | `entity` | string | Current power sensor |
-| `entity_avg` | string | Average hourly consumption sensor |
-| `entity_daily` | string | Daily energy total sensor |
+| `entity_avg` | string | Average hourly sensor |
+| `entity_daily` | string | Daily energy sensor |
 
-## Creating Required Sensors
+## Common Icons
 
-You'll need sensors for power, energy, and current. Here are some examples:
-
-### Using Template Sensors
-
-```yaml
-# configuration.yaml
-template:
-  - sensor:
-      - name: "Main Power"
-        unit_of_measurement: "W"
-        state: "{{ states('sensor.smart_meter_power') | float(0) }}"
-        
-      - name: "Main Energy Daily"
-        unit_of_measurement: "kWh"
-        state: "{{ states('sensor.smart_meter_energy_daily') | float(0) }}"
-        
-      - name: "Main Current"
-        unit_of_measurement: "A"
-        state: "{{ (states('sensor.smart_meter_power') | float(0) / 240) | round(1) }}"
 ```
-
-### Using Utility Meters
-
-```yaml
-# configuration.yaml
-utility_meter:
-  main_energy_daily:
-    source: sensor.smart_meter_energy_total
-    cycle: daily
+mdi:fridge          mdi:stove           mdi:microwave
+mdi:dishwasher      mdi:washing-machine mdi:tumble-dryer
+mdi:television      mdi:desktop-tower   mdi:laptop
+mdi:lamp            mdi:ceiling-light   mdi:fan
+mdi:air-conditioner mdi:water-heater    mdi:ev-station
+mdi:car-electric    mdi:speaker         mdi:printer
+mdi:coffee-maker    mdi:toaster         mdi:power-plug
 ```
-
-## Screenshots
-
-### Dark Theme
-![Dark Theme](docs/dark-theme.png)
-
-### Light Theme  
-![Light Theme](docs/light-theme.png)
-
-### Expanded Device Table
-![Device Table](docs/devices-expanded.png)
-
-## Animation Details
-
-The yellow power flow lines animate based on actual power values:
-- Higher power = faster animation
-- Zero power = no animation
-- Particles flow along the lines showing power direction
 
 ## Troubleshooting
 
 ### Card not appearing
-1. Clear browser cache (Ctrl+F5)
-2. Check browser console for errors (F12)
-3. Verify the resource is loaded in Settings → Dashboards → Resources
+1. Clear browser cache (Ctrl+F5 or Cmd+Shift+R)
+2. Check browser console (F12) for errors
+3. Verify the resource is loaded: Settings → Dashboards → Resources
 
 ### Entities not updating
-1. Verify entity IDs are correct
+1. Verify entity IDs are correct in Developer Tools → States
 2. Check entities have `unit_of_measurement` attribute
-3. Ensure entities are not unavailable
+3. Ensure entities are not `unavailable`
 
 ### Animation performance
-If animation is choppy, try:
-1. Reducing the number of circuit breakers displayed
-2. Increasing `animation_speed` value
-3. Using a modern browser
+- Increase `animation_speed` value for smoother performance on slower devices
+- Reduce the number of circuit breakers if needed
 
 ## Contributing
 
@@ -282,17 +225,10 @@ Contributions are welcome! Please:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Credits
-
-Inspired by:
-- [Power Flow Card Plus](https://github.com/flixlix/power-flow-card-plus)
-- [Sunsynk Power Flow Card](https://github.com/slipx06/sunsynk-power-flow-card)
-- Real electrical distribution board designs
+MIT License — see [LICENSE](LICENSE) file for details.
 
 ## Support
 
 - 🐛 [Report bugs](https://github.com/rellis-erigon/HA-Powercard/issues)
 - 💡 [Request features](https://github.com/rellis-erigon/HA-Powercard/issues)
-- 📖 [Documentation](https://github.com/rellis-erigon/HA-Powercard/wiki)
+- ⭐ Star this repo if you find it useful!
