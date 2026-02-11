@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HA-Powercard Preview</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0f0f1a;
+      min-height: 100vh;
+      padding: 40px;
+      color: #e4e4e7;
+    }
+
+    .preview-header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .preview-header h1 {
+      font-size: 32px;
+      background: linear-gradient(135deg, #f59e0b, #fbbf24);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+    }
+
+    .preview-header p {
+      color: #94a3b8;
+      font-size: 14px;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+    }
+
+    .control-group {
+      background: #1a1a2e;
+      padding: 16px 24px;
+      border-radius: 12px;
+      border: 1px solid #0f3460;
+    }
+
+    .control-group label {
+      display: block;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 8px;
+    }
+
+    .control-group input[type="range"] {
+      width: 150px;
+      accent-color: #f59e0b;
+    }
+
+    .control-group .value-display {
+      font-size: 18px;
+      font-weight: 600;
+      color: #fbbf24;
+    }
+
+    .card-container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    /* Card Styles */
+    .ha-card {
+      background: #1a1a2e;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    }
+
+    .powercard-container {
+      position: relative;
+      padding: 24px;
+      min-height: 500px;
+    }
+
+    .flow-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Power Sources */
+    .power-sources {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .source-box {
+      background: #16213e;
+      border: 2px solid #0f3460;
+      border-radius: 12px;
+      padding: 20px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      min-width: 160px;
+    }
+
+    .source-box:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+    }
+
+    .solar-box {
+      border-color: #fbbf24;
+      box-shadow: 0 0 30px rgba(251, 191, 36, 0.2);
+    }
+
+    .solar-box .source-icon {
+      color: #fbbf24;
+    }
+
+    .grid-box {
+      border-color: #6b7280;
+    }
+
+    .grid-box .source-icon {
+      color: #6b7280;
+    }
+
+    .source-icon svg {
+      width: 40px;
+      height: 40px;
+    }
+
+    .source-label {
+      font-size: 14px;
+      color: #94a3b8;
+      margin: 8px 0 4px;
+    }
+
+    .source-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #e4e4e7;
+    }
+
+    /* Distribution Board */
+    .distribution-board {
+      background: #16213e;
+      border: 3px solid #0f3460;
+      border-radius: 16px;
+      padding: 20px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .board-header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .board-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #e4e4e7;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    .busbar {
+      height: 8px;
+      background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 50%, #f59e0b 100%);
+      border-radius: 4px;
+      margin-bottom: 24px;
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.5);
+      animation: busbar-glow 2s ease-in-out infinite;
+    }
+
+    @keyframes busbar-glow {
+      0%, 100% { box-shadow: 0 0 15px rgba(245, 158, 11, 0.4); }
+      50% { box-shadow: 0 0 35px rgba(245, 158, 11, 0.7), 0 0 50px rgba(245, 158, 11, 0.4); }
+    }
+
+    .breakers-container {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    /* Breaker Cards */
+    .breaker-card {
+      background: #1a1a2e;
+      border: 2px solid #0f3460;
+      border-radius: 12px;
+      padding: 16px;
+      min-width: 110px;
+      flex: 1;
+      max-width: 140px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .breaker-card:hover {
+      border-color: #f59e0b;
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+
+    .breaker-card.main-breaker {
+      border-color: #f59e0b;
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.3);
+    }
+
+    .breaker-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #0f3460;
+    }
+
+    .breaker-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #f59e0b;
+    }
+
+    .breaker-status {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #6b7280;
+      transition: all 0.3s ease;
+    }
+
+    .breaker-status.active {
+      background: #22c55e;
+      box-shadow: 0 0 12px #22c55e;
+    }
+
+    .breaker-data {
+      font-size: 12px;
+    }
+
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .data-label {
+      color: #94a3b8;
+      font-size: 11px;
+    }
+
+    .data-value {
+      color: #e4e4e7;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .data-divider {
+      height: 1px;
+      background: #0f3460;
+      margin: 10px 0;
+    }
+
+    /* Empty Slots */
+    .empty-slot {
+      border-style: dashed;
+      opacity: 0.3;
+      cursor: default;
+    }
+
+    .empty-slot:hover {
+      transform: none;
+      border-color: #0f3460;
+      box-shadow: none;
+    }
+
+    .empty-slot-inner {
+      height: 100px;
+    }
+
+    /* Device Table */
+    .devices-container {
+      margin-top: 24px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .devices-panel {
+      background: #16213e;
+      border: 2px solid #0f3460;
+      border-radius: 12px;
+      padding: 20px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .devices-header {
+      margin-bottom: 16px;
+    }
+
+    .devices-title {
+      display: block;
+      font-size: 15px;
+      font-weight: 700;
+      color: #f59e0b;
+      margin-bottom: 4px;
+    }
+
+    .devices-subtitle {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    .devices-table {
+      font-size: 13px;
+    }
+
+    .table-header {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 12px;
+      padding: 12px 16px;
+      background: #1a1a2e;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-weight: 700;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+
+    .table-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 8px;
+      transition: background 0.2s ease;
+      cursor: pointer;
+    }
+
+    .table-row:hover {
+      background: #1a1a2e;
+    }
+
+    .device-name {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #e4e4e7;
+    }
+
+    .device-icon {
+      width: 20px;
+      height: 20px;
+      color: #94a3b8;
+    }
+
+    .device-avg,
+    .device-current,
+    .device-daily {
+      color: #e4e4e7;
+      text-align: right;
+    }
+
+    /* Instructions */
+    .instructions {
+      margin-top: 32px;
+      padding: 20px;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      border-radius: 12px;
+      color: #fbbf24;
+      font-size: 13px;
+    }
+
+    .instructions h3 {
+      margin-bottom: 12px;
+      color: #f59e0b;
+    }
+
+    .instructions ul {
+      margin-left: 20px;
+    }
+
+    .instructions li {
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-header">
+    <h1>⚡ HA-Powercard Preview</h1>
+    <p>Interactive preview of the Distribution Board Power Flow Card</p>
+  </div>
+
+  <div class="controls">
+    <div class="control-group">
+      <label>Solar Power</label>
+      <input type="range" id="solarPower" min="0" max="5000" value="2450">
+      <div class="value-display"><span id="solarValue">2450</span> W</div>
+    </div>
+    <div class="control-group">
+      <label>Grid Power</label>
+      <input type="range" id="gridPower" min="0" max="5000" value="1200">
+      <div class="value-display"><span id="gridValue">1200</span> W</div>
+    </div>
+    <div class="control-group">
+      <label>Main Breaker</label>
+      <input type="range" id="mainPower" min="0" max="8000" value="3650">
+      <div class="value-display"><span id="mainValue">3650</span> W</div>
+    </div>
+  </div>
+
+  <div class="card-container">
+    <div class="ha-card">
+      <div class="powercard-container">
+        <canvas class="flow-canvas" id="flowCanvas"></canvas>
+        
+        <div class="power-sources">
+          <div class="source-box solar-box">
+            <div class="source-icon">
+              <svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,2L14.39,5.42C13.65,5.15 12.84,5 12,5C11.16,5 10.35,5.15 9.61,5.42L12,2M3.34,7L7.5,6.65C6.9,7.16 6.36,7.78 5.94,8.5C5.5,9.24 5.25,10 5.11,10.79L3.34,7M3.36,17L5.12,13.23C5.26,14 5.53,14.78 5.95,15.5C6.37,16.24 6.91,16.86 7.5,17.37L3.36,17M20.65,7L18.88,10.79C18.74,10 18.47,9.23 18.05,8.5C17.63,7.78 17.1,7.15 16.5,6.64L20.65,7M20.64,17L16.5,17.36C17.09,16.85 17.62,16.22 18.04,15.5C18.46,14.77 18.73,14 18.87,13.21L20.64,17M12,22L9.59,18.56C10.33,18.83 11.14,19 12,19C12.82,19 13.63,18.83 14.37,18.56L12,22Z"/>
+              </svg>
+            </div>
+            <div class="source-label">Solar</div>
+            <div class="source-value" id="solarDisplay">2450 W</div>
+          </div>
+          
+          <div class="source-box grid-box">
+            <div class="source-icon">
+              <svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M8.28,5.45L6.5,4.55L7.76,2H16.24L17.5,4.55L15.72,5.45L15,4H9L8.28,5.45M18.62,8H14.09L13.3,5H10.7L9.91,8H5.38L4.1,10.55L5.89,11.44L6.62,10H17.38L18.1,11.44L19.89,10.55L18.62,8M17.77,22H15.7L15.46,21.21L12,14.82L8.54,21.21L8.3,22H6.23L9.12,15H5.38L4.1,12.55L5.89,11.64L6.62,13H17.38L18.1,11.64L19.89,12.55L18.62,15H14.88L17.77,22Z"/>
+              </svg>
+            </div>
+            <div class="source-label">Grid</div>
+            <div class="source-value" id="gridDisplay">1200 W</div>
+          </div>
+        </div>
+
+        <div class="distribution-board">
+          <div class="board-header">
+            <span class="board-title">Distribution Board</span>
+          </div>
+          
+          <div class="busbar"></div>
+          
+          <div class="breakers-container">
+            <div class="breaker-card main-breaker">
+              <div class="breaker-header">
+                <span class="breaker-name">Main CB</span>
+                <div class="breaker-status active"></div>
+              </div>
+              <div class="breaker-data">
+                <div class="data-row">
+                  <span class="data-label">Daily Total</span>
+                  <span class="data-value">24.7 kWh</span>
+                </div>
+                <div class="data-divider"></div>
+                <div class="data-row">
+                  <span class="data-label">Live Data</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">15.2 A</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value" id="mainDisplay">3650 W</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="breaker-card">
+              <div class="breaker-header">
+                <span class="breaker-name">CB-1</span>
+                <div class="breaker-status active"></div>
+              </div>
+              <div class="breaker-data">
+                <div class="data-row">
+                  <span class="data-label">Daily Total</span>
+                  <span class="data-value">8.3 kWh</span>
+                </div>
+                <div class="data-divider"></div>
+                <div class="data-row">
+                  <span class="data-label">Live Data</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">4.8 A</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">1150 W</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="breaker-card">
+              <div class="breaker-header">
+                <span class="breaker-name">CB-2</span>
+                <div class="breaker-status active"></div>
+              </div>
+              <div class="breaker-data">
+                <div class="data-row">
+                  <span class="data-label">Daily Total</span>
+                  <span class="data-value">5.1 kWh</span>
+                </div>
+                <div class="data-divider"></div>
+                <div class="data-row">
+                  <span class="data-label">Live Data</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">2.9 A</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">690 W</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="breaker-card">
+              <div class="breaker-header">
+                <span class="breaker-name">CB-3</span>
+                <div class="breaker-status active"></div>
+              </div>
+              <div class="breaker-data">
+                <div class="data-row">
+                  <span class="data-label">Daily Total</span>
+                  <span class="data-value">3.8 kWh</span>
+                </div>
+                <div class="data-divider"></div>
+                <div class="data-row">
+                  <span class="data-label">Live Data</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">1.2 A</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">285 W</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="breaker-card">
+              <div class="breaker-header">
+                <span class="breaker-name">CB-4</span>
+                <div class="breaker-status"></div>
+              </div>
+              <div class="breaker-data">
+                <div class="data-row">
+                  <span class="data-label">Daily Total</span>
+                  <span class="data-value">1.2 kWh</span>
+                </div>
+                <div class="data-divider"></div>
+                <div class="data-row">
+                  <span class="data-label">Live Data</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">0.0 A</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">0 W</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="breaker-card">
+              <div class="breaker-header">
+                <span class="breaker-name">CB-5</span>
+                <div class="breaker-status active"></div>
+              </div>
+              <div class="breaker-data">
+                <div class="data-row">
+                  <span class="data-label">Daily Total</span>
+                  <span class="data-value">6.3 kWh</span>
+                </div>
+                <div class="data-divider"></div>
+                <div class="data-row">
+                  <span class="data-label">Live Data</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">6.3 A</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-value">1525 W</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="breaker-card empty-slot">
+              <div class="empty-slot-inner"></div>
+            </div>
+
+            <div class="breaker-card empty-slot">
+              <div class="empty-slot-inner"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="devices-container">
+          <div class="devices-panel">
+            <div class="devices-header">
+              <span class="devices-title">Devices linked to CB-1 With Usage Data</span>
+              <span class="devices-subtitle">Average per/hour, Current usage and daily total per device</span>
+            </div>
+            <div class="devices-table">
+              <div class="table-header">
+                <span>Device</span>
+                <span>Avg/Hour</span>
+                <span>Current</span>
+                <span>Daily Total</span>
+              </div>
+              <div class="table-row">
+                <span class="device-name">
+                  <svg class="device-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M9,21V22H7V21A2,2 0 0,1 5,19V4A2,2 0 0,1 7,2H17A2,2 0 0,1 19,4V19A2,2 0 0,1 17,21V22H15V21H9M7,4V9H17V4H7M7,19H17V11H7V19M8,12H10V15H8V12Z"/></svg>
+                  Refrigerator
+                </span>
+                <span class="device-avg">45.2 Wh</span>
+                <span class="device-current">120 W</span>
+                <span class="device-daily">1.08 kWh</span>
+              </div>
+              <div class="table-row">
+                <span class="device-name">
+                  <svg class="device-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M6,4H10V6H14V4H18V6H19A2,2 0 0,1 21,8V18A2,2 0 0,1 19,20H5A2,2 0 0,1 3,18V8A2,2 0 0,1 5,6H6V4M5,12V18H19V12H5M5,8V10H19V8H5Z"/></svg>
+                  Oven
+                </span>
+                <span class="device-avg">85.0 Wh</span>
+                <span class="device-current">850 W</span>
+                <span class="device-daily">2.04 kWh</span>
+              </div>
+              <div class="table-row">
+                <span class="device-name">
+                  <svg class="device-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M20,8V16H16L12,20L8,16H4V8H20M18,10H6V14H9.17L12,16.83L14.83,14H18V10Z"/></svg>
+                  Microwave
+                </span>
+                <span class="device-avg">25.8 Wh</span>
+                <span class="device-current">180 W</span>
+                <span class="device-daily">0.62 kWh</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="instructions">
+      <h3>📋 Instructions</h3>
+      <ul>
+        <li><strong>Yellow lines</strong> show animated power flow from Solar and Grid to the distribution board</li>
+        <li><strong>Blue text</strong> (breaker names) indicate selectable/configurable data</li>
+        <li><strong>Circuit breakers</strong> show daily kWh totals and live current/power readings</li>
+        <li><strong>Green status dots</strong> indicate active power flow on that circuit</li>
+        <li>Use the <strong>sliders above</strong> to simulate different power levels</li>
+        <li><strong>Click circuit breakers</strong> to see connected devices (in real implementation)</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    // Animation variables
+    let particles = [];
+    let solarPower = 2450;
+    let gridPower = 1200;
+    let mainPower = 3650;
+
+    // Canvas setup
+    const canvas = document.getElementById('flowCanvas');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+    }
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Slider controls
+    document.getElementById('solarPower').addEventListener('input', (e) => {
+      solarPower = parseInt(e.target.value);
+      document.getElementById('solarValue').textContent = solarPower;
+      document.getElementById('solarDisplay').textContent = solarPower + ' W';
+    });
+
+    document.getElementById('gridPower').addEventListener('input', (e) => {
+      gridPower = parseInt(e.target.value);
+      document.getElementById('gridValue').textContent = gridPower;
+      document.getElementById('gridDisplay').textContent = gridPower + ' W';
+    });
+
+    document.getElementById('mainPower').addEventListener('input', (e) => {
+      mainPower = parseInt(e.target.value);
+      document.getElementById('mainValue').textContent = mainPower;
+      document.getElementById('mainDisplay').textContent = mainPower + ' W';
+    });
+
+    // Path helpers
+    function getPointOnPath(path, progress) {
+      if (path.length < 2) return path[0] || { x: 0, y: 0 };
+
+      let totalLength = 0;
+      const segments = [];
+      
+      for (let i = 1; i < path.length; i++) {
+        const dx = path[i].x - path[i-1].x;
+        const dy = path[i].y - path[i-1].y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        segments.push({ start: path[i-1], end: path[i], length });
+        totalLength += length;
+      }
+
+      const targetDistance = progress * totalLength;
+      let currentDistance = 0;
+
+      for (const segment of segments) {
+        if (currentDistance + segment.length >= targetDistance) {
+          const segmentProgress = (targetDistance - currentDistance) / segment.length;
+          return {
+            x: segment.start.x + (segment.end.x - segment.start.x) * segmentProgress,
+            y: segment.start.y + (segment.end.y - segment.start.y) * segmentProgress
+          };
+        }
+        currentDistance += segment.length;
+      }
+
+      return path[path.length - 1];
+    }
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      const rect = canvas.getBoundingClientRect();
+      const width = rect.width;
+      const height = rect.height;
+      
+      ctx.clearRect(0, 0, width, height);
+
+      // Key positions
+      const solarBoxRight = width * 0.20;
+      const solarBoxBottom = height * 0.12;
+      const gridBoxLeft = width * 0.83;
+      const busbarY = height * 0.35;
+      const mainBreakerX = width * 0.08;
+
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#f59e0b';
+      ctx.shadowBlur = 10;
+
+      // Solar flow line
+      if (solarPower > 0) {
+        ctx.beginPath();
+        ctx.moveTo(solarBoxRight + 60, solarBoxBottom + 40);
+        ctx.lineTo(solarBoxRight + 60, busbarY);
+        ctx.lineTo(mainBreakerX + 60, busbarY);
+        ctx.stroke();
+        
+        addParticles('solar', [
+          { x: solarBoxRight + 60, y: solarBoxBottom + 40 },
+          { x: solarBoxRight + 60, y: busbarY },
+          { x: mainBreakerX + 60, y: busbarY }
+        ], solarPower);
+      }
+
+      // Grid flow line
+      if (gridPower > 0) {
+        ctx.beginPath();
+        ctx.moveTo(gridBoxLeft - 20, solarBoxBottom + 40);
+        ctx.lineTo(gridBoxLeft - 20, busbarY);
+        ctx.lineTo(width * 0.75, busbarY);
+        ctx.stroke();
+        
+        addParticles('grid', [
+          { x: gridBoxLeft - 20, y: solarBoxBottom + 40 },
+          { x: gridBoxLeft - 20, y: busbarY },
+          { x: width * 0.75, y: busbarY }
+        ], gridPower);
+      }
+
+      // Main busbar
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 5;
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.moveTo(mainBreakerX + 20, busbarY);
+      ctx.lineTo(width * 0.92, busbarY);
+      ctx.stroke();
+
+      // Lines from busbar to breakers
+      const breakerCount = 8;
+      const breakerSpacing = (width * 0.84) / breakerCount;
+      
+      ctx.lineWidth = 2;
+      ctx.shadowBlur = 8;
+      
+      for (let i = 0; i < breakerCount; i++) {
+        const x = mainBreakerX + 40 + (i * breakerSpacing);
+        ctx.beginPath();
+        ctx.moveTo(x, busbarY);
+        ctx.lineTo(x, busbarY + 25);
+        ctx.stroke();
+      }
+
+      ctx.shadowBlur = 0;
+
+      // Update and draw particles
+      ctx.fillStyle = '#fbbf24';
+      ctx.shadowColor = '#f59e0b';
+      ctx.shadowBlur = 12;
+
+      particles = particles.filter(particle => {
+        particle.progress += particle.speed;
+        
+        if (particle.progress >= 1) return false;
+
+        const pos = getPointOnPath(particle.path, particle.progress);
+        
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, particle.size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        return true;
+      });
+
+      ctx.shadowBlur = 0;
+    }
+
+    function addParticles(source, path, power) {
+      if (power <= 0) return;
+      
+      const speed = Math.max(0.005, 0.025 - (power / 10000) * 0.02);
+      const existing = particles.filter(p => p.source === source);
+      
+      if (existing.length < Math.min(15, Math.ceil(power / 300))) {
+        if (Math.random() < 0.15) {
+          particles.push({
+            source,
+            path,
+            progress: 0,
+            speed: speed * (0.8 + Math.random() * 0.4),
+            size: 5 + Math.random() * 3
+          });
+        }
+      }
+    }
+
+    // Start animation
+    animate();
+  </script>
+</body>
+</html>
