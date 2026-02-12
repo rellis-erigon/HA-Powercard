@@ -1,44 +1,55 @@
 # Changelog
 
-## [2.1.0] - 2026-02-12
+All notable changes to HA-Powercard will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [2.0.0] - 2026-02-11
+
+### Added
+- **Complete Visual Editor** — Full GUI configuration, no YAML required
+- **Circuit Breaker Management** — Add/edit/delete breakers through the UI
+- **Device Management** — Add devices to breakers with icon picker
+- **Battery Support** — Display battery power and state of charge
+- **Customizable Accent Color** — Color picker for busbar and highlights
+- **Improved Animations** — Smoother particle flow with better performance
+- **Professional Design Refresh** — Cleaner, more polished interface
+- **Responsive Layout** — Better mobile and tablet support
+
+### Changed
+- Redesigned card layout with improved visual hierarchy
+- Better source cards with accent borders
+- Improved busbar glow effect
+- Smoother animation rendering with ResizeObserver
+- Better entity picker integration in editor
+- Auto-format large watt values to kW
 
 ### Fixed
-- Circuit breaker labels corrected: Daily → "Todays Usage" heading, Current → "Amps", Power → "Wattage"
-- Energy values now properly converted from Wh to kWh (divided by 1000, rounded to 0 decimal places)
-- Device panels now show expanded by default on card load (collapsible if user clicks)
-- Table headers properly aligned with device table data
+- Animation canvas sizing issues
+- Entity picker state synchronization
+- Theme compatibility improvements
+
+## [1.0.0] - 2026-02-11
 
 ### Added
-- **Sub-devices**: Add devices under other devices (e.g., PC → Monitor, Speakers)
-- **Monitored/Unmonitored totals**: Each breaker's device panel shows total monitored power and unmonitored difference
-- **Auto-calculated average hourly**: Power history tracked in localStorage, Avg/Hr values calculated automatically without extra sensors
-- **Auto-scaling breakers grid**: Card scales to full width, breakers distribute evenly across available space
+- Initial release
+- Distribution board style visualization
+- Animated power flow lines using canvas
+- Solar and grid power source display
+- Main circuit breaker with power/energy/current data
+- Multiple circuit breakers support
+- Expandable device tables per circuit breaker
+- Basic visual editor
+- Dark and light theme support
+- HACS compatibility
 
-### Improved
-- Card now uses CSS custom property `--breaker-count` for responsive grid layout
-- Better mobile responsiveness with 2-column layout on small screens
-- Power history exposed via custom event `ha-powercard-averages` for external integrations
+## [Unreleased]
 
-## [2.0.0] - 2026-02-12
-
-### Added
-- Complete visual editor - no YAML required
-- Full GUI for adding/editing circuit breakers
-- Full GUI for adding/editing devices per breaker
-- Icon picker with 22 common device icons
-- Color picker for accent color
-- Battery support with state of charge display
-- Professional design refresh
-
-### Improved
-- Better particle animations
-- Refined typography and spacing
-- Improved mobile layout
-- Auto W→kW conversion for large values
-
-## [1.0.0] - Initial Release
-
-- Basic power flow visualization
-- Solar, grid, battery sources
-- Circuit breaker display
-- Canvas-based animations
+### Planned
+- Power export visualization (bidirectional grid flow)
+- Multiple solar inputs
+- Circuit breaker trip status indicators
+- Historical usage mini-charts
+- Cost calculation display
+- Drag-and-drop breaker reordering
