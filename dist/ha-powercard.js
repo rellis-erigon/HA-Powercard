@@ -1,23 +1,179 @@
 /**
- * HA-Powercard v2.0 - Distribution Board Power Flow Card for Home Assistant
- * Full GUI Editor + Professional Design
+ * HA-Powercard v2.2.0
+ * A Home Assistant custom card for visualizing electrical distribution board power flows
+ * https://github.com/rellis-erigon/HA-Powercard
  * 
- * @version 2.0.0
- * @author rellis-erigon
- * @license MIT
+ * v2.2.0 Changes:
+ * - Fixed energy display: Wh properly converted to kWh (÷1000, 0 decimal places)
+ * - Added Monitored Total and Unmonitored (Breaker - Monitored) rows to device table
+ * - Fixed table alignment with proper column widths
+ * - Auto-scaling card width with breakers filling available space
+ * - Sub-device support for nested device tracking
+ * - PowerHistoryTracker exposes averages to Home Assistant via custom events
  */
 
-const CARD_VERSION = '2.0.0';
+// Power History Tracker - stores hourly averages in localStorage
+class PowerHistoryTracker {
+  constructor() {
+    this.storageKey = 'ha-powercard-power-history';
+    this.averagesKey = 'ha-powercard-averages';
+    this.data = this._loadData();
+    this._cleanOldData();
+  }
 
-console.info(
-  `%c HA-POWERCARD %c v${CARD_VERSION} `,
-  'color: #fff; background: linear-gradient(135deg, #f59e0b, #d97706); font-weight: bold; padding: 4px 8px; border-radius: 6px 0 0 6px;',
-  'color: #f59e0b; background: #1e1e2e; font-weight: bold; padding: 4px 8px; border-radius: 0 6px 6px 0;'
-);
+  _loadData() {
+    try {
+      const stored = localStorage.getItem(this.storageKey);
+      return stored ? JSON.parse(stored) : {};
+    } catch (e) {
+      console.warn('HA-Powercard: Could not load power history', e);
+      return {};
+    }
+  }
 
-// ============================================================================
-// MAIN CARD CLASS
-// ============================================================================
+  _saveData() {
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify(this.data));
+    } catch (e) {
+      console.warn('HA-Powercard: Could not save power history', e);
+    }
+  }
+
+  _cleanOldData() {
+    const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 days
+    let cleaned = false;
+    for (const entityId in this.data) {
+      for (const hourKey in this.data[entityId]) {
+        if (parseInt(hourKey) < cutoff) {
+          delete this.data[entityId][hourKey];
+          cleaned = true;
+        }
+      }
+    }
+    if (cleaned) this._saveData();
+  }
+
+  recordPower(entityId, powerValue) {
+    if (powerValue === null || isNaN(powerValue)) return;
+    
+    const now = new Date();
+    const hourKey = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()).getTime();
+    
+    if (!this.data[entityId]) this.data[entityId] = {};
+    if (!this.data[entityId][hourKey]) {
+      this.data[entityId][hourKey] = { sum: 0, count: 0 };
+    }
+    
+    this.data[entityId][hourKey].sum += powerValue;
+    this.data[entityId][hourKey].count++;
+    this._saveData();
+  }
+
+  getHourlyAverage(entityId, hoursAgo = 0) {
+    const now = new Date();
+    const targetHour = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() - hoursAgo).getTime();
+    
+    if (this.data[entityId] && this.data[entityId][targetHour]) {
+      const entry = this.data[entityId][targetHour];
+      return entry.count > 0 ? entry.sum / entry.count : null;
+    }
+    return null;
+  }
+
+  getDailyAverage(entityId) {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    
+    let totalSum = 0;
+    let totalCount = 0;
+    
+    if (this.data[entityId]) {
+      for (const hourKey in this.data[entityId]) {
+        if (parseInt(hourKey) >= startOfDay) {
+          totalSum += this.data[entityId][hourKey].sum;
+          totalCount += this.data[entityId][hourKey].count;
+        }
+      }
+    }
+    
+    return totalCount > 0 ? totalSum / totalCount : null;
+  }
+
+  getAllHourlyAverages(entityId) {
+    const averages = {};
+    const now = new Date();
+    
+    for (let i = 0; i < 24; i++) {
+      const hour = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() - i).getTime();
+      const hourLabel = new Date(hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      if (this.data[entityId] && this.data[entityId][hour]) {
+        const entry = this.data[entityId][hour];
+        averages[hourLabel] = entry.count > 0 ? Math.round(entry.sum / entry.count) : null;
+      } else {
+        averages[hourLabel] = null;
+      }
+    }
+    
+    return averages;
+  }
+
+  exposeAverages() {
+    const averages = {};
+    
+    for (const entityId in this.data) {
+      averages[entityId] = {
+        currentHour: this.getHourlyAverage(entityId, 0),
+        lastHour: this.getHourlyAverage(entityId, 1),
+        dailyAverage: this.getDailyAverage(entityId),
+        hourlyBreakdown: this.getAllHourlyAverages(entityId)
+      };
+    }
+    
+    // Store in localStorage for other components
+    try {
+      localStorage.setItem(this.averagesKey, JSON.stringify({
+        timestamp: Date.now(),
+        averages: averages
+      }));
+    } catch (e) {
+      console.warn('HA-Powercard: Could not save averages', e);
+    }
+    
+    // Dispatch custom event for Home Assistant integration
+    window.dispatchEvent(new CustomEvent('ha-powercard-averages', { 
+      detail: averages,
+      bubbles: true,
+      composed: true
+    }));
+    
+    // Also make available globally
+    window.haPowercardAverages = averages;
+    
+    return averages;
+  }
+
+  // Static method to retrieve averages from anywhere
+  static getStoredAverages() {
+    try {
+      const stored = localStorage.getItem('ha-powercard-averages');
+      if (stored) {
+        const data = JSON.parse(stored);
+        // Check if data is less than 1 hour old
+        if (Date.now() - data.timestamp < 3600000) {
+          return data.averages;
+        }
+      }
+    } catch (e) {
+      console.warn('HA-Powercard: Could not retrieve averages', e);
+    }
+    return null;
+  }
+}
+
+const powerHistory = new PowerHistoryTracker();
+
+// Main Card Component
 class HAPowercard extends HTMLElement {
   constructor() {
     super();
@@ -28,17 +184,44 @@ class HAPowercard extends HTMLElement {
     this._animationFrame = null;
     this._particles = [];
     this._resizeObserver = null;
+    this._initialRender = true;
   }
 
   set hass(hass) {
     this._hass = hass;
+    this._recordPowerHistory();
     this._updateCard();
   }
 
+  _recordPowerHistory() {
+    if (!this._hass) return;
+    
+    this._config.circuit_breakers?.forEach(cb => {
+      if (cb.entity_power) {
+        const power = this._getEntityState(cb.entity_power);
+        if (power !== null) powerHistory.recordPower(cb.entity_power, power);
+      }
+      
+      cb.devices?.forEach(device => {
+        if (device.entity) {
+          const power = this._getEntityState(device.entity);
+          if (power !== null) powerHistory.recordPower(device.entity, power);
+        }
+        // Record sub-devices
+        device.sub_devices?.forEach(subDev => {
+          if (subDev.entity) {
+            const power = this._getEntityState(subDev.entity);
+            if (power !== null) powerHistory.recordPower(subDev.entity, power);
+          }
+        });
+      });
+    });
+    
+    powerHistory.exposeAverages();
+  }
+
   setConfig(config) {
-    if (!config) {
-      throw new Error('Invalid configuration');
-    }
+    if (!config) throw new Error('Invalid configuration');
     
     this._config = {
       title: 'Distribution Board',
@@ -51,18 +234,25 @@ class HAPowercard extends HTMLElement {
       battery: { name: 'Battery' },
       main_breaker: { name: 'Main CB' },
       circuit_breakers: [],
-      theme: 'auto',
       accent_color: '#f59e0b',
       ...config
     };
-
+    
+    // Auto-expand all breakers with devices on initial load
+    if (this._initialRender) {
+      this._config.circuit_breakers?.forEach((cb, index) => {
+        if (cb.devices?.length > 0) {
+          this._expandedBreakers.add(`cb-${index}`);
+        }
+      });
+      this._initialRender = false;
+    }
+    
     this._render();
   }
 
   getCardSize() {
-    const baseSize = 4;
-    const breakerRows = Math.ceil((this._config.circuit_breakers?.length || 0) / 4);
-    return baseSize + breakerRows;
+    return 4 + Math.ceil((this._config.circuit_breakers?.length || 0) / 4);
   }
 
   static getConfigElement() {
@@ -77,25 +267,10 @@ class HAPowercard extends HTMLElement {
       show_grid: true,
       show_battery: false,
       accent_color: '#f59e0b',
-      solar: {
-        entity: '',
-        name: 'Solar',
-      },
-      grid: {
-        entity: '',
-        name: 'Grid',
-      },
-      battery: {
-        entity: '',
-        entity_soc: '',
-        name: 'Battery',
-      },
-      main_breaker: {
-        entity_power: '',
-        entity_energy: '',
-        entity_current: '',
-        name: 'Main CB',
-      },
+      solar: { entity: '', name: 'Solar' },
+      grid: { entity: '', name: 'Grid' },
+      battery: { entity: '', entity_soc: '', name: 'Battery' },
+      main_breaker: { entity_power: '', entity_energy: '', entity_current: '', name: 'Main CB' },
       circuit_breakers: []
     };
   }
@@ -114,449 +289,480 @@ class HAPowercard extends HTMLElement {
     return state?.attributes?.unit_of_measurement || '';
   }
 
-  _formatValue(value, decimals = 1, unit = '') {
-    if (value === null || value === undefined || isNaN(value)) return '—';
+  _formatPower(value) {
+    if (value === null || value === undefined) return '--';
+    if (Math.abs(value) >= 1000) return (value / 1000).toFixed(2) + ' kW';
+    return Math.round(value) + ' W';
+  }
+
+  _formatEnergy(value, entityId) {
+    if (value === null || value === undefined) return '--';
+    const unit = this._getEntityUnit(entityId);
     
-    // Auto-convert large watt values to kW
-    if (unit === 'W' && Math.abs(value) >= 1000) {
-      return `${(value / 1000).toFixed(1)} kW`;
+    // Always convert to kWh - divide by 1000 and round to 0 decimal places
+    if (unit === 'Wh' || (!unit && value >= 100)) {
+      // Value is in Wh, convert to kWh
+      return Math.round(value / 1000) + ' kWh';
     }
+    // Already in kWh
+    return Math.round(value) + ' kWh';
+  }
+
+  _formatCurrent(value) {
+    if (value === null || value === undefined) return '--';
+    return value.toFixed(1) + ' A';
+  }
+
+  _getStyles() {
+    const accent = this._config.accent_color || '#f59e0b';
+    const breakerCount = this._config.circuit_breakers?.length || 0;
     
-    const formatted = Number(value).toFixed(decimals);
-    return unit ? `${formatted} ${unit}` : formatted;
-  }
-
-  _render() {
-    const styles = this._getStyles();
-    const html = this._getHTML();
-    
-    this.shadowRoot.innerHTML = `
-      <style>${styles}</style>
-      ${html}
-    `;
-
-    this._setupEventListeners();
-    this._setupCanvas();
-    this._startAnimation();
-  }
-
-  _setupCanvas() {
-    const canvas = this.shadowRoot.querySelector('.flow-canvas');
-    if (!canvas) return;
-
-    const container = this.shadowRoot.querySelector('.powercard-container');
-    
-    this._resizeObserver = new ResizeObserver(() => {
-      const rect = container.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      canvas.style.width = rect.width + 'px';
-      canvas.style.height = rect.height + 'px';
-      const ctx = canvas.getContext('2d');
-      ctx.scale(dpr, dpr);
-    });
-    
-    this._resizeObserver.observe(container);
-  }
-
-  _updateCard() {
-    if (!this.shadowRoot.querySelector('.powercard-container')) {
-      this._render();
-      return;
-    }
-
-    // Update solar
-    if (this._config.show_solar && this._config.solar?.entity) {
-      const val = this._getEntityState(this._config.solar.entity);
-      const el = this.shadowRoot.querySelector('.solar-value');
-      if (el) el.textContent = this._formatValue(val, 0, 'W');
-    }
-
-    // Update grid
-    if (this._config.show_grid && this._config.grid?.entity) {
-      const val = this._getEntityState(this._config.grid.entity);
-      const el = this.shadowRoot.querySelector('.grid-value');
-      if (el) el.textContent = this._formatValue(val, 0, 'W');
-    }
-
-    // Update battery
-    if (this._config.show_battery && this._config.battery?.entity) {
-      const val = this._getEntityState(this._config.battery.entity);
-      const soc = this._getEntityState(this._config.battery.entity_soc);
-      const powerEl = this.shadowRoot.querySelector('.battery-value');
-      const socEl = this.shadowRoot.querySelector('.battery-soc');
-      if (powerEl) powerEl.textContent = this._formatValue(val, 0, 'W');
-      if (socEl && soc !== null) socEl.textContent = `${Math.round(soc)}%`;
-    }
-
-    // Update main breaker
-    this._updateBreakerData('main', this._config.main_breaker);
-
-    // Update circuit breakers
-    this._config.circuit_breakers?.forEach((cb, index) => {
-      this._updateBreakerData(`cb-${index}`, cb);
-    });
-
-    // Update device tables
-    this._updateDeviceTables();
-  }
-
-  _updateBreakerData(id, config) {
-    if (!config) return;
-    const container = this.shadowRoot.querySelector(`[data-breaker="${id}"]`);
-    if (!container) return;
-
-    const power = this._getEntityState(config.entity_power);
-    const energy = this._getEntityState(config.entity_energy);
-    const current = this._getEntityState(config.entity_current);
-
-    const energyEl = container.querySelector('.breaker-energy');
-    const currentEl = container.querySelector('.breaker-current');
-    const powerEl = container.querySelector('.breaker-power');
-    const statusEl = container.querySelector('.breaker-status');
-
-    if (energyEl) energyEl.textContent = this._formatValue(energy, 2, 'kWh');
-    if (currentEl) currentEl.textContent = this._formatValue(current, 1, 'A');
-    if (powerEl) powerEl.textContent = this._formatValue(power, 0, 'W');
-    if (statusEl) {
-      statusEl.classList.toggle('active', power > 0);
-    }
-  }
-
-  _updateDeviceTables() {
-    this._config.circuit_breakers?.forEach((cb, cbIndex) => {
-      if (!cb.devices?.length) return;
-      
-      cb.devices.forEach((device, devIndex) => {
-        const row = this.shadowRoot.querySelector(`[data-device="${cbIndex}-${devIndex}"]`);
-        if (!row) return;
-
-        const power = this._getEntityState(device.entity);
-        const avg = this._getEntityState(device.entity_avg);
-        const daily = this._getEntityState(device.entity_daily);
-
-        const powerEl = row.querySelector('.device-power');
-        const avgEl = row.querySelector('.device-avg');
-        const dailyEl = row.querySelector('.device-daily');
-
-        if (powerEl) powerEl.textContent = this._formatValue(power, 0, 'W');
-        if (avgEl) avgEl.textContent = this._formatValue(avg, 1, 'Wh');
-        if (dailyEl) dailyEl.textContent = this._formatValue(daily, 2, 'kWh');
-      });
-    });
-  }
-
-  _startAnimation() {
-    const canvas = this.shadowRoot.querySelector('.flow-canvas');
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    
-    const animate = () => {
-      this._animationFrame = requestAnimationFrame(animate);
-      
-      const rect = canvas.getBoundingClientRect();
-      ctx.clearRect(0, 0, rect.width, rect.height);
-      
-      this._drawFlowLines(ctx, rect.width, rect.height);
-      this._updateParticles(ctx);
-    };
-
-    animate();
-  }
-
-  _drawFlowLines(ctx, width, height) {
-    const accentColor = this._config.accent_color || '#f59e0b';
-    const solarPower = this._getEntityState(this._config.solar?.entity) || 0;
-    const gridPower = this._getEntityState(this._config.grid?.entity) || 0;
-    const batteryPower = this._getEntityState(this._config.battery?.entity) || 0;
-
-    // Key positions
-    const busbarY = height * 0.38;
-    const sourceY = height * 0.12;
-
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    // Draw glow effect for active lines
-    const drawGlowLine = (path, power, color) => {
-      if (power <= 0) return;
-      
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 4;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 15;
-      
-      ctx.beginPath();
-      ctx.moveTo(path[0].x, path[0].y);
-      for (let i = 1; i < path.length; i++) {
-        ctx.lineTo(path[i].x, path[i].y);
+    return `
+      :host {
+        --accent-color: ${accent};
+        --accent-glow: ${accent}66;
+        --breaker-count: ${breakerCount};
+        display: block;
+        width: 100%;
       }
-      ctx.stroke();
       
-      // Inner bright line
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.6;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    };
-
-    // Solar line
-    if (this._config.show_solar && solarPower > 0) {
-      const solarPath = [
-        { x: width * 0.18, y: sourceY + 60 },
-        { x: width * 0.18, y: busbarY },
-        { x: width * 0.12, y: busbarY }
-      ];
-      drawGlowLine(solarPath, solarPower, '#fbbf24');
-      this._addParticles('solar', solarPath, solarPower, '#fbbf24');
-    }
-
-    // Grid line
-    if (this._config.show_grid && gridPower > 0) {
-      const gridPath = [
-        { x: width * 0.82, y: sourceY + 60 },
-        { x: width * 0.82, y: busbarY },
-        { x: width * 0.88, y: busbarY }
-      ];
-      drawGlowLine(gridPath, gridPower, '#6b7280');
-      this._addParticles('grid', gridPath, gridPower, '#9ca3af');
-    }
-
-    // Battery line
-    if (this._config.show_battery && Math.abs(batteryPower) > 0) {
-      const batteryPath = [
-        { x: width * 0.50, y: sourceY + 60 },
-        { x: width * 0.50, y: busbarY }
-      ];
-      const batteryColor = batteryPower > 0 ? '#22c55e' : '#ef4444';
-      drawGlowLine(batteryPath, Math.abs(batteryPower), batteryColor);
-      this._addParticles('battery', batteryPath, Math.abs(batteryPower), batteryColor);
-    }
-
-    // Main busbar
-    ctx.shadowColor = accentColor;
-    ctx.shadowBlur = 20;
-    ctx.strokeStyle = accentColor;
-    ctx.lineWidth = 6;
-    
-    const gradient = ctx.createLinearGradient(width * 0.08, 0, width * 0.92, 0);
-    gradient.addColorStop(0, accentColor);
-    gradient.addColorStop(0.5, '#fcd34d');
-    gradient.addColorStop(1, accentColor);
-    ctx.strokeStyle = gradient;
-    
-    ctx.beginPath();
-    ctx.moveTo(width * 0.08, busbarY);
-    ctx.lineTo(width * 0.92, busbarY);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Vertical drops to breakers
-    const breakerCount = (this._config.circuit_breakers?.length || 0) + 1;
-    const startX = width * 0.10;
-    const endX = width * 0.90;
-    const spacing = (endX - startX) / Math.max(breakerCount, 1);
-
-    ctx.strokeStyle = accentColor;
-    ctx.lineWidth = 3;
-    ctx.shadowColor = accentColor;
-    ctx.shadowBlur = 8;
-
-    for (let i = 0; i < breakerCount; i++) {
-      const x = startX + (i * spacing) + spacing / 2;
-      ctx.beginPath();
-      ctx.moveTo(x, busbarY);
-      ctx.lineTo(x, busbarY + 20);
-      ctx.stroke();
-    }
-    
-    ctx.shadowBlur = 0;
-  }
-
-  _addParticles(source, path, power, color) {
-    if (power <= 0) return;
-    
-    const speed = Math.max(0.008, 0.035 - (power / 8000) * 0.025);
-    const existing = this._particles.filter(p => p.source === source);
-    const maxParticles = Math.min(12, Math.ceil(power / 400));
-    
-    if (existing.length < maxParticles && Math.random() < 0.12) {
-      this._particles.push({
-        source,
-        path: [...path],
-        progress: 0,
-        speed: speed * (0.7 + Math.random() * 0.6),
-        size: 4 + Math.random() * 3,
-        color
-      });
-    }
-  }
-
-  _updateParticles(ctx) {
-    this._particles = this._particles.filter(particle => {
-      particle.progress += particle.speed;
-      if (particle.progress >= 1) return false;
-
-      const pos = this._getPointOnPath(particle.path, particle.progress);
-      
-      // Glow
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, particle.size * 2, 0, Math.PI * 2);
-      ctx.fillStyle = particle.color;
-      ctx.globalAlpha = 0.3;
-      ctx.fill();
-      
-      // Core
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, particle.size, 0, Math.PI * 2);
-      ctx.fillStyle = '#fff';
-      ctx.globalAlpha = 0.9;
-      ctx.fill();
-      
-      ctx.globalAlpha = 1;
-      return true;
-    });
-  }
-
-  _getPointOnPath(path, progress) {
-    if (path.length < 2) return path[0] || { x: 0, y: 0 };
-
-    let totalLength = 0;
-    const segments = [];
-    
-    for (let i = 1; i < path.length; i++) {
-      const dx = path[i].x - path[i-1].x;
-      const dy = path[i].y - path[i-1].y;
-      const length = Math.sqrt(dx * dx + dy * dy);
-      segments.push({ start: path[i-1], end: path[i], length });
-      totalLength += length;
-    }
-
-    const targetDistance = progress * totalLength;
-    let currentDistance = 0;
-
-    for (const segment of segments) {
-      if (currentDistance + segment.length >= targetDistance) {
-        const segmentProgress = (targetDistance - currentDistance) / segment.length;
-        return {
-          x: segment.start.x + (segment.end.x - segment.start.x) * segmentProgress,
-          y: segment.start.y + (segment.end.y - segment.start.y) * segmentProgress
-        };
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
       }
-      currentDistance += segment.length;
-    }
-
-    return path[path.length - 1];
-  }
-
-  _setupEventListeners() {
-    // Breaker expansion
-    this.shadowRoot.querySelectorAll('.breaker-card[data-has-devices="true"]').forEach(card => {
-      card.addEventListener('click', () => {
-        const id = card.dataset.breaker;
-        const panel = this.shadowRoot.querySelector(`[data-devices="${id}"]`);
-        if (!panel) return;
-
-        const isExpanded = this._expandedBreakers.has(id);
-        if (isExpanded) {
-          this._expandedBreakers.delete(id);
-          panel.classList.remove('expanded');
-          card.classList.remove('expanded');
-        } else {
-          this._expandedBreakers.add(id);
-          panel.classList.add('expanded');
-          card.classList.add('expanded');
+      
+      .card {
+        background: var(--ha-card-background, var(--card-background-color, #1c1c1c));
+        border-radius: 12px;
+        padding: 16px;
+        color: var(--primary-text-color, #e0e0e0);
+        font-family: var(--ha-card-font-family, 'Segoe UI', sans-serif);
+        position: relative;
+        overflow: hidden;
+        width: 100%;
+      }
+      
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--divider-color, #333);
+      }
+      
+      .card-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--primary-text-color, #fff);
+      }
+      
+      .power-sources {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+      
+      .source-box {
+        flex: 1;
+        background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+        border: 1px solid var(--divider-color, #333);
+        border-radius: 8px;
+        padding: 12px;
+        position: relative;
+        overflow: hidden;
+      }
+      
+      .source-box::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: var(--accent-color);
+      }
+      
+      .source-box.solar::before {
+        background: linear-gradient(90deg, #fbbf24, #f59e0b);
+      }
+      
+      .source-box.grid::before {
+        background: linear-gradient(90deg, #60a5fa, #3b82f6);
+      }
+      
+      .source-box.battery::before {
+        background: linear-gradient(90deg, #34d399, #10b981);
+      }
+      
+      .source-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--secondary-text-color, #999);
+        margin-bottom: 4px;
+      }
+      
+      .source-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--primary-text-color, #fff);
+      }
+      
+      .busbar-container {
+        position: relative;
+        height: 40px;
+        margin: 16px 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      
+      .busbar {
+        width: 100%;
+        height: 12px;
+        background: linear-gradient(180deg, #404040 0%, #2a2a2a 50%, #1a1a1a 100%);
+        border-radius: 6px;
+        position: relative;
+        box-shadow: 
+          inset 0 2px 4px rgba(0,0,0,0.5),
+          0 2px 8px rgba(0,0,0,0.3);
+      }
+      
+      .busbar::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 4px;
+        right: 4px;
+        height: 4px;
+        background: linear-gradient(90deg, 
+          transparent 0%,
+          var(--accent-glow) 20%,
+          var(--accent-color) 50%,
+          var(--accent-glow) 80%,
+          transparent 100%
+        );
+        border-radius: 2px;
+        animation: busbar-flow 2s ease-in-out infinite;
+      }
+      
+      @keyframes busbar-flow {
+        0%, 100% { opacity: 0.4; }
+        50% { opacity: 1; }
+      }
+      
+      .main-breaker {
+        background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%);
+        border: 1px solid var(--divider-color, #333);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      
+      .main-breaker-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      
+      .main-breaker-name {
+        font-size: 1rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      .breaker-status {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #555;
+        transition: all 0.3s ease;
+      }
+      
+      .breaker-status.active {
+        background: #22c55e;
+        box-shadow: 0 0 8px #22c55e88;
+      }
+      
+      .main-breaker-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+      
+      .stat-box {
+        text-align: center;
+        padding: 8px;
+        background: rgba(0,0,0,0.2);
+        border-radius: 6px;
+      }
+      
+      .stat-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--secondary-text-color, #888);
+        margin-bottom: 4px;
+      }
+      
+      .stat-value {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--primary-text-color, #fff);
+      }
+      
+      /* Auto-scaling breaker grid */
+      .breakers-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+        width: 100%;
+      }
+      
+      /* For larger screens, limit to reasonable sizes */
+      @media (min-width: 800px) {
+        .breakers-grid {
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         }
-      });
-    });
-
-    // Entity click for more-info
-    this.shadowRoot.querySelectorAll('[data-entity]').forEach(el => {
-      const entityId = el.dataset.entity;
-      if (!entityId) return;
+      }
       
-      el.style.cursor = 'pointer';
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const event = new Event('hass-more-info', { bubbles: true, composed: true });
-        event.detail = { entityId };
-        this.dispatchEvent(event);
-      });
-    });
-  }
-
-  _getHTML() {
-    const config = this._config;
-    const accentColor = config.accent_color || '#f59e0b';
-    
-    return `
-      <ha-card>
-        <div class="powercard-container" style="--accent-color: ${accentColor}">
-          <canvas class="flow-canvas"></canvas>
-          
-          <div class="card-header">
-            <h2 class="card-title">${config.title || 'Distribution Board'}</h2>
-          </div>
-
-          <div class="power-sources">
-            ${config.show_solar ? this._renderSourceCard('solar', config.solar, 'M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,2L14.39,5.42C13.65,5.15 12.84,5 12,5C11.16,5 10.35,5.15 9.61,5.42L12,2M3.34,7L7.5,6.65C6.9,7.16 6.36,7.78 5.94,8.5C5.5,9.24 5.25,10 5.11,10.79L3.34,7M3.36,17L5.12,13.23C5.26,14 5.53,14.78 5.95,15.5C6.37,16.24 6.91,16.86 7.5,17.37L3.36,17M20.65,7L18.88,10.79C18.74,10 18.47,9.23 18.05,8.5C17.63,7.78 17.1,7.15 16.5,6.64L20.65,7M20.64,17L16.5,17.36C17.09,16.85 17.62,16.22 18.04,15.5C18.46,14.77 18.73,14 18.87,13.21L20.64,17M12,22L9.59,18.56C10.33,18.83 11.14,19 12,19C12.82,19 13.63,18.83 14.37,18.56L12,22Z', '#fbbf24') : ''}
-            ${config.show_battery ? this._renderBatteryCard(config.battery) : ''}
-            ${config.show_grid ? this._renderSourceCard('grid', config.grid, 'M8.28,5.45L6.5,4.55L7.76,2H16.24L17.5,4.55L15.72,5.45L15,4H9L8.28,5.45M18.62,8H14.09L13.3,5H10.7L9.91,8H5.38L4.1,10.55L5.89,11.44L6.62,10H17.38L18.1,11.44L19.89,10.55L18.62,8M17.77,22H15.7L15.46,21.21L12,14.82L8.54,21.21L8.3,22H6.23L9.12,15H5.38L4.1,12.55L5.89,11.64L6.62,13H17.38L18.1,11.64L19.89,12.55L18.62,15H14.88L17.77,22Z', '#6b7280') : ''}
-          </div>
-
-          <div class="distribution-board">
-            <div class="board-inner">
-              <div class="busbar"></div>
-              <div class="breakers-grid">
-                ${this._renderMainBreaker()}
-                ${this._renderCircuitBreakers()}
-              </div>
-            </div>
-          </div>
-
-          ${this._renderDevicesPanels()}
-        </div>
-      </ha-card>
-    `;
-  }
-
-  _renderSourceCard(type, config, iconPath, color) {
-    const power = this._getEntityState(config?.entity);
-    
-    return `
-      <div class="source-card ${type}-card" data-entity="${config?.entity || ''}" style="--source-color: ${color}">
-        <div class="source-icon">
-          <svg viewBox="0 0 24 24"><path fill="currentColor" d="${iconPath}"/></svg>
-        </div>
-        <div class="source-info">
-          <span class="source-label">${config?.name || type}</span>
-          <span class="source-value ${type}-value">${this._formatValue(power, 0, 'W')}</span>
-        </div>
-      </div>
-    `;
-  }
-
-  _renderBatteryCard(config) {
-    const power = this._getEntityState(config?.entity);
-    const soc = this._getEntityState(config?.entity_soc);
-    const isCharging = power < 0;
-    const color = isCharging ? '#22c55e' : '#f59e0b';
-    
-    return `
-      <div class="source-card battery-card" data-entity="${config?.entity || ''}" style="--source-color: ${color}">
-        <div class="source-icon">
-          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M16,20H8V6H16M16.67,4H15V2H9V4H7.33A1.33,1.33 0 0,0 6,5.33V20.67C6,21.4 6.6,22 7.33,22H16.67A1.33,1.33 0 0,0 18,20.67V5.33C18,4.6 17.4,4 16.67,4Z"/></svg>
-          ${soc !== null ? `<span class="battery-soc">${Math.round(soc)}%</span>` : ''}
-        </div>
-        <div class="source-info">
-          <span class="source-label">${config?.name || 'Battery'}</span>
-          <span class="source-value battery-value">${this._formatValue(Math.abs(power), 0, 'W')}</span>
-        </div>
-      </div>
+      @media (min-width: 1200px) {
+        .breakers-grid {
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        }
+      }
+      
+      .breaker-card {
+        background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+        border: 1px solid var(--divider-color, #333);
+        border-radius: 8px;
+        padding: 12px;
+        transition: all 0.3s ease;
+        min-width: 0;
+      }
+      
+      .breaker-card.has-devices {
+        cursor: pointer;
+      }
+      
+      .breaker-card.has-devices:hover {
+        border-color: var(--accent-color);
+        box-shadow: 0 0 12px var(--accent-glow);
+      }
+      
+      .breaker-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      
+      .breaker-name {
+        font-weight: 600;
+        font-size: 0.9rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      
+      .breaker-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      
+      .stat-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.8rem;
+      }
+      
+      .stat-item .stat-label {
+        color: var(--secondary-text-color, #888);
+        text-transform: none;
+        letter-spacing: normal;
+        font-size: 0.75rem;
+        margin-bottom: 0;
+      }
+      
+      .stat-item .stat-value {
+        font-size: 0.85rem;
+        font-weight: 500;
+        font-family: 'SF Mono', 'Consolas', monospace;
+      }
+      
+      .stat-divider {
+        height: 1px;
+        background: var(--divider-color, #333);
+        margin: 6px 0;
+      }
+      
+      .stat-section-label {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--accent-color);
+        margin: 4px 0;
+        font-weight: 600;
+      }
+      
+      /* Device Panel - Full Width */
+      .devices-panel {
+        grid-column: 1 / -1;
+        background: rgba(0,0,0,0.3);
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 8px;
+        overflow: hidden;
+        transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+      }
+      
+      .devices-panel.collapsed {
+        max-height: 0;
+        padding: 0 12px;
+        opacity: 0;
+      }
+      
+      .devices-panel.expanded {
+        max-height: 600px;
+        opacity: 1;
+      }
+      
+      .devices-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--divider-color, #444);
+      }
+      
+      .devices-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--accent-color);
+      }
+      
+      .collapse-btn {
+        background: none;
+        border: none;
+        color: var(--secondary-text-color, #888);
+        cursor: pointer;
+        padding: 4px 8px;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      
+      .collapse-btn:hover {
+        color: var(--accent-color);
+      }
+      
+      /* Properly aligned table */
+      .devices-table {
+        width: 100%;
+        font-size: 0.8rem;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+      
+      .devices-table th,
+      .devices-table td {
+        padding: 8px 12px;
+        vertical-align: middle;
+      }
+      
+      .devices-table th {
+        text-align: left;
+        font-weight: 600;
+        color: var(--secondary-text-color, #888);
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid var(--divider-color, #444);
+      }
+      
+      .devices-table th:nth-child(1) {
+        width: 50%;
+        text-align: left;
+      }
+      
+      .devices-table th:nth-child(2),
+      .devices-table th:nth-child(3) {
+        width: 25%;
+        text-align: right;
+      }
+      
+      .devices-table td {
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+      }
+      
+      .devices-table td:nth-child(1) {
+        text-align: left;
+      }
+      
+      .devices-table td:nth-child(2),
+      .devices-table td:nth-child(3) {
+        text-align: right;
+        font-family: 'SF Mono', 'Consolas', monospace;
+      }
+      
+      .device-row td {
+        color: var(--primary-text-color, #e0e0e0);
+      }
+      
+      .device-row.sub-device td:first-child {
+        padding-left: 28px;
+        color: var(--secondary-text-color, #999);
+        position: relative;
+      }
+      
+      .device-row.sub-device td:first-child::before {
+        content: '└';
+        position: absolute;
+        left: 12px;
+        color: var(--divider-color, #555);
+      }
+      
+      /* Totals rows */
+      .totals-section td {
+        border-top: 2px solid var(--divider-color, #444);
+        padding-top: 10px;
+      }
+      
+      .totals-row td {
+        font-weight: 600;
+        padding-top: 6px;
+        padding-bottom: 6px;
+      }
+      
+      .totals-row.monitored td {
+        color: var(--accent-color);
+      }
+      
+      .totals-row.monitored td:first-child::before {
+        content: '✓ ';
+      }
+      
+      .totals-row.unmonitored td {
+        color: var(--secondary-text-color, #888);
+        font-style: italic;
+      }
+      
+      .totals-row.unmonitored td:first-child::before {
+        content: '? ';
+      }
+      
+      .totals-row.breaker-total td {
+        color: var(--primary-text-color, #fff);
+        border-top: 1px solid var(--divider-color, #444);
+      }
     `;
   }
 
@@ -567,1102 +773,845 @@ class HAPowercard extends HTMLElement {
     const current = this._getEntityState(config.entity_current);
     
     return `
-      <div class="breaker-card main-breaker" data-breaker="main" data-has-devices="false">
+      <div class="main-breaker">
+        <div class="main-breaker-header">
+          <span class="main-breaker-name">
+            ${config.name || 'Main CB'}
+            <span class="breaker-status ${power > 0 ? 'active' : ''}"></span>
+          </span>
+        </div>
+        <div class="main-breaker-stats">
+          <div class="stat-box">
+            <div class="stat-label">Today's Usage</div>
+            <div class="stat-value">${this._formatEnergy(energy, config.entity_energy)}</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Amps</div>
+            <div class="stat-value">${this._formatCurrent(current)}</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Wattage</div>
+            <div class="stat-value">${this._formatPower(power)}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCircuitBreaker(cb, index) {
+    const power = this._getEntityState(cb.entity_power);
+    const energy = this._getEntityState(cb.entity_energy);
+    const current = this._getEntityState(cb.entity_current);
+    const hasDevices = cb.devices?.length > 0;
+    const breakerId = `cb-${index}`;
+    const isExpanded = this._expandedBreakers.has(breakerId);
+    
+    return `
+      <div class="breaker-card ${hasDevices ? 'has-devices' : ''}" 
+           data-breaker="${breakerId}" 
+           data-has-devices="${hasDevices}">
         <div class="breaker-header">
-          <span class="breaker-name">${config.name || 'Main CB'}</span>
+          <span class="breaker-name">${cb.name || 'CB-' + (index + 1)}</span>
           <span class="breaker-status ${power > 0 ? 'active' : ''}"></span>
         </div>
         <div class="breaker-stats">
           <div class="stat-item">
-            <span class="stat-label">Daily</span>
-            <span class="stat-value breaker-energy" data-entity="${config.entity_energy || ''}">${this._formatValue(energy, 2, 'kWh')}</span>
+            <span class="stat-label">Today's Usage</span>
+            <span class="stat-value">${this._formatEnergy(energy, cb.entity_energy)}</span>
           </div>
           <div class="stat-divider"></div>
+          <div class="stat-section-label">Live Data</div>
           <div class="stat-item">
-            <span class="stat-label">Current</span>
-            <span class="stat-value breaker-current" data-entity="${config.entity_current || ''}">${this._formatValue(current, 1, 'A')}</span>
+            <span class="stat-label">Amps</span>
+            <span class="stat-value">${this._formatCurrent(current)}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Power</span>
-            <span class="stat-value breaker-power" data-entity="${config.entity_power || ''}">${this._formatValue(power, 0, 'W')}</span>
+            <span class="stat-label">Wattage</span>
+            <span class="stat-value">${this._formatPower(power)}</span>
           </div>
         </div>
+      </div>
+      ${hasDevices ? this._renderDevicesPanel(cb, breakerId, isExpanded) : ''}
+    `;
+  }
+
+  _renderDevicesPanel(cb, breakerId, isExpanded) {
+    let monitoredPower = 0;
+    const breakerTotalPower = this._getEntityState(cb.entity_power) || 0;
+    
+    // Build device rows and calculate monitored total
+    const deviceRows = cb.devices.map(device => {
+      const power = this._getEntityState(device.entity);
+      const avgPower = device.entity ? powerHistory.getDailyAverage(device.entity) : null;
+      
+      if (power !== null) monitoredPower += power;
+      
+      let rows = `
+        <tr class="device-row">
+          <td>${device.name || 'Device'}</td>
+          <td>${this._formatPower(power)}</td>
+          <td>${avgPower !== null ? this._formatPower(avgPower) : '--'}</td>
+        </tr>
+      `;
+      
+      // Sub-devices
+      if (device.sub_devices?.length > 0) {
+        device.sub_devices.forEach(subDev => {
+          const subPower = this._getEntityState(subDev.entity);
+          const subAvg = subDev.entity ? powerHistory.getDailyAverage(subDev.entity) : null;
+          
+          // Note: sub-device power is typically already included in parent device
+          // Only add to monitored if it's a separate measurement
+          if (subDev.separate_measurement && subPower !== null) {
+            monitoredPower += subPower;
+          }
+          
+          rows += `
+            <tr class="device-row sub-device">
+              <td>${subDev.name || 'Sub-device'}</td>
+              <td>${this._formatPower(subPower)}</td>
+              <td>${subAvg !== null ? this._formatPower(subAvg) : '--'}</td>
+            </tr>
+          `;
+        });
+      }
+      
+      return rows;
+    }).join('');
+    
+    const unmonitoredPower = Math.max(0, breakerTotalPower - monitoredPower);
+    
+    return `
+      <div class="devices-panel ${isExpanded ? 'expanded' : 'collapsed'}" data-panel="${breakerId}">
+        <div class="devices-header">
+          <span class="devices-title">${cb.name} — Devices</span>
+          <button class="collapse-btn" data-toggle="${breakerId}">
+            ${isExpanded ? '▲ Collapse' : '▼ Expand'}
+          </button>
+        </div>
+        <table class="devices-table">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>Wattage</th>
+              <th>Avg (Today)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${deviceRows}
+          </tbody>
+          <tbody class="totals-section">
+            <tr class="totals-row monitored">
+              <td>Monitored Total</td>
+              <td>${this._formatPower(monitoredPower)}</td>
+              <td>--</td>
+            </tr>
+            <tr class="totals-row unmonitored">
+              <td>Unmonitored</td>
+              <td>${this._formatPower(unmonitoredPower)}</td>
+              <td>--</td>
+            </tr>
+            <tr class="totals-row breaker-total">
+              <td>Breaker Total</td>
+              <td>${this._formatPower(breakerTotalPower)}</td>
+              <td>--</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     `;
   }
 
   _renderCircuitBreakers() {
     const breakers = this._config.circuit_breakers || [];
+    return breakers.map((cb, index) => this._renderCircuitBreaker(cb, index)).join('');
+  }
+
+  _renderPowerSources() {
+    const sources = [];
     
-    return breakers.map((cb, index) => {
+    if (this._config.show_solar) {
+      const solarPower = this._getEntityState(this._config.solar?.entity);
+      sources.push(`
+        <div class="source-box solar">
+          <div class="source-label">${this._config.solar?.name || 'Solar'}</div>
+          <div class="source-value">${this._formatPower(solarPower)}</div>
+        </div>
+      `);
+    }
+    
+    if (this._config.show_grid) {
+      const gridPower = this._getEntityState(this._config.grid?.entity);
+      sources.push(`
+        <div class="source-box grid">
+          <div class="source-label">${this._config.grid?.name || 'Grid'}</div>
+          <div class="source-value">${this._formatPower(gridPower)}</div>
+        </div>
+      `);
+    }
+    
+    if (this._config.show_battery) {
+      const batteryPower = this._getEntityState(this._config.battery?.entity);
+      const batterySoc = this._getEntityState(this._config.battery?.entity_soc);
+      sources.push(`
+        <div class="source-box battery">
+          <div class="source-label">${this._config.battery?.name || 'Battery'}${batterySoc !== null ? ` (${Math.round(batterySoc)}%)` : ''}</div>
+          <div class="source-value">${this._formatPower(batteryPower)}</div>
+        </div>
+      `);
+    }
+    
+    return sources.join('');
+  }
+
+  _render() {
+    this.shadowRoot.innerHTML = `
+      <style>${this._getStyles()}</style>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">${this._config.title || 'Distribution Board'}</span>
+        </div>
+        
+        <div class="power-sources">
+          ${this._renderPowerSources()}
+        </div>
+        
+        <div class="busbar-container">
+          <div class="busbar"></div>
+        </div>
+        
+        ${this._renderMainBreaker()}
+        
+        <div class="breakers-grid">
+          ${this._renderCircuitBreakers()}
+        </div>
+      </div>
+    `;
+    
+    this._attachEventListeners();
+  }
+
+  _attachEventListeners() {
+    // Breaker card clicks
+    this.shadowRoot.querySelectorAll('.breaker-card.has-devices').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.collapse-btn')) return;
+        const breakerId = card.dataset.breaker;
+        this._toggleDevices(breakerId);
+      });
+    });
+    
+    // Collapse button clicks
+    this.shadowRoot.querySelectorAll('.collapse-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const breakerId = btn.dataset.toggle;
+        this._toggleDevices(breakerId);
+      });
+    });
+  }
+
+  _toggleDevices(breakerId) {
+    const panel = this.shadowRoot.querySelector(`[data-panel="${breakerId}"]`);
+    const btn = this.shadowRoot.querySelector(`[data-toggle="${breakerId}"]`);
+    
+    if (!panel) return;
+    
+    if (this._expandedBreakers.has(breakerId)) {
+      this._expandedBreakers.delete(breakerId);
+      panel.classList.remove('expanded');
+      panel.classList.add('collapsed');
+      if (btn) btn.textContent = '▼ Expand';
+    } else {
+      this._expandedBreakers.add(breakerId);
+      panel.classList.remove('collapsed');
+      panel.classList.add('expanded');
+      if (btn) btn.textContent = '▲ Collapse';
+    }
+  }
+
+  _updateCard() {
+    if (!this.shadowRoot.querySelector('.card')) {
+      this._render();
+      return;
+    }
+    
+    // Update power sources
+    const solarValue = this.shadowRoot.querySelector('.source-box.solar .source-value');
+    const gridValue = this.shadowRoot.querySelector('.source-box.grid .source-value');
+    const batteryValue = this.shadowRoot.querySelector('.source-box.battery .source-value');
+    
+    if (solarValue) {
+      solarValue.textContent = this._formatPower(this._getEntityState(this._config.solar?.entity));
+    }
+    if (gridValue) {
+      gridValue.textContent = this._formatPower(this._getEntityState(this._config.grid?.entity));
+    }
+    if (batteryValue) {
+      batteryValue.textContent = this._formatPower(this._getEntityState(this._config.battery?.entity));
+    }
+    
+    // Update main breaker
+    const mainConfig = this._config.main_breaker || {};
+    const mainPower = this._getEntityState(mainConfig.entity_power);
+    const mainEnergy = this._getEntityState(mainConfig.entity_energy);
+    const mainCurrent = this._getEntityState(mainConfig.entity_current);
+    
+    const mainBreaker = this.shadowRoot.querySelector('.main-breaker');
+    if (mainBreaker) {
+      const status = mainBreaker.querySelector('.breaker-status');
+      if (status) status.className = `breaker-status ${mainPower > 0 ? 'active' : ''}`;
+      
+      const statBoxes = mainBreaker.querySelectorAll('.stat-box .stat-value');
+      if (statBoxes[0]) statBoxes[0].textContent = this._formatEnergy(mainEnergy, mainConfig.entity_energy);
+      if (statBoxes[1]) statBoxes[1].textContent = this._formatCurrent(mainCurrent);
+      if (statBoxes[2]) statBoxes[2].textContent = this._formatPower(mainPower);
+    }
+    
+    // Update circuit breakers - need to re-render for device panel updates
+    this._config.circuit_breakers?.forEach((cb, index) => {
+      const card = this.shadowRoot.querySelector(`[data-breaker="cb-${index}"]`);
+      if (!card) return;
+      
       const power = this._getEntityState(cb.entity_power);
       const energy = this._getEntityState(cb.entity_energy);
       const current = this._getEntityState(cb.entity_current);
-      const hasDevices = cb.devices?.length > 0;
       
-      return `
-        <div class="breaker-card ${hasDevices ? 'has-devices' : ''}" 
-             data-breaker="cb-${index}" 
-             data-has-devices="${hasDevices}">
-          <div class="breaker-header">
-            <span class="breaker-name">${cb.name || `CB-${index + 1}`}</span>
-            <span class="breaker-status ${power > 0 ? 'active' : ''}"></span>
-          </div>
-          <div class="breaker-stats">
-            <div class="stat-item">
-              <span class="stat-label">Daily</span>
-              <span class="stat-value breaker-energy" data-entity="${cb.entity_energy || ''}">${this._formatValue(energy, 2, 'kWh')}</span>
-            </div>
-            <div class="stat-divider"></div>
-            <div class="stat-item">
-              <span class="stat-label">Current</span>
-              <span class="stat-value breaker-current" data-entity="${cb.entity_current || ''}">${this._formatValue(current, 1, 'A')}</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Power</span>
-              <span class="stat-value breaker-power" data-entity="${cb.entity_power || ''}">${this._formatValue(power, 0, 'W')}</span>
-            </div>
-          </div>
-          ${hasDevices ? '<div class="expand-hint"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></div>' : ''}
-        </div>
-      `;
-    }).join('');
-  }
-
-  _renderDevicesPanels() {
-    const breakers = this._config.circuit_breakers || [];
-    
-    const panels = breakers.map((cb, cbIndex) => {
-      if (!cb.devices?.length) return '';
+      const status = card.querySelector('.breaker-status');
+      if (status) status.className = `breaker-status ${power > 0 ? 'active' : ''}`;
       
-      return `
-        <div class="devices-panel" data-devices="cb-${cbIndex}">
-          <div class="devices-header">
-            <span class="devices-title">${cb.name || `CB-${cbIndex + 1}`} — Connected Devices</span>
-          </div>
-          <div class="devices-table">
-            <div class="table-header">
-              <span>Device</span>
-              <span>Avg/Hr</span>
-              <span>Power</span>
-              <span>Daily</span>
-            </div>
-            ${cb.devices.map((device, devIndex) => {
-              const power = this._getEntityState(device.entity);
-              const avg = this._getEntityState(device.entity_avg);
-              const daily = this._getEntityState(device.entity_daily);
-              
-              return `
-                <div class="table-row" data-device="${cbIndex}-${devIndex}" data-entity="${device.entity || ''}">
-                  <span class="device-name">
-                    ${device.icon ? `<ha-icon icon="${device.icon}"></ha-icon>` : '<ha-icon icon="mdi:power-plug"></ha-icon>'}
-                    ${device.name || 'Device'}
-                  </span>
-                  <span class="device-avg">${this._formatValue(avg, 1, 'Wh')}</span>
-                  <span class="device-power">${this._formatValue(power, 0, 'W')}</span>
-                  <span class="device-daily">${this._formatValue(daily, 2, 'kWh')}</span>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-      `;
-    }).filter(Boolean);
-
-    return panels.length ? `<div class="devices-container">${panels.join('')}</div>` : '';
-  }
-
-  _getStyles() {
-    return `
-      :host {
-        --card-bg: var(--ha-card-background, var(--card-background-color, #1e1e2e));
-        --card-surface: var(--primary-background-color, #181825);
-        --card-border: var(--divider-color, #313244);
-        --text-primary: var(--primary-text-color, #cdd6f4);
-        --text-secondary: var(--secondary-text-color, #a6adc8);
-        --accent-color: #f59e0b;
-      }
-
-      ha-card {
-        background: var(--card-bg);
-        border-radius: 16px;
-        overflow: hidden;
-        border: 1px solid var(--card-border);
-      }
-
-      .powercard-container {
-        position: relative;
-        padding: 20px;
-        min-height: 420px;
-      }
-
-      .flow-canvas {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-        z-index: 1;
-      }
-
-      /* Header */
-      .card-header {
-        position: relative;
-        z-index: 2;
-        margin-bottom: 16px;
-      }
-
-      .card-title {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-      }
-
-      /* Power Sources */
-      .power-sources {
-        display: flex;
-        justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 20px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .source-card {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        background: var(--card-surface);
-        border: 1px solid var(--card-border);
-        border-radius: 12px;
-        padding: 14px 18px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        max-width: 200px;
-      }
-
-      .source-card:hover {
-        transform: translateY(-2px);
-        border-color: var(--source-color);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-      }
-
-      .source-card.solar-card {
-        border-left: 3px solid #fbbf24;
-      }
-
-      .source-card.grid-card {
-        border-left: 3px solid #6b7280;
-      }
-
-      .source-card.battery-card {
-        border-left: 3px solid var(--source-color);
-      }
-
-      .source-icon {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        background: color-mix(in srgb, var(--source-color) 15%, transparent);
-        color: var(--source-color);
-        position: relative;
-      }
-
-      .source-icon svg {
-        width: 24px;
-        height: 24px;
-      }
-
-      .battery-soc {
-        position: absolute;
-        bottom: -6px;
-        right: -6px;
-        font-size: 9px;
-        font-weight: 700;
-        background: var(--card-bg);
-        padding: 2px 4px;
-        border-radius: 4px;
-        color: var(--source-color);
-      }
-
-      .source-info {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-
-      .source-label {
-        font-size: 11px;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-
-      .source-value {
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--text-primary);
-      }
-
-      /* Distribution Board */
-      .distribution-board {
-        background: var(--card-surface);
-        border: 1px solid var(--card-border);
-        border-radius: 12px;
-        padding: 16px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .board-inner {
-        position: relative;
-      }
-
-      .busbar {
-        height: 6px;
-        background: linear-gradient(90deg, 
-          var(--accent-color) 0%, 
-          color-mix(in srgb, var(--accent-color) 80%, #fff) 50%,
-          var(--accent-color) 100%
-        );
-        border-radius: 3px;
-        margin-bottom: 16px;
-        box-shadow: 0 0 20px color-mix(in srgb, var(--accent-color) 50%, transparent);
-      }
-
-      .breakers-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-        gap: 12px;
-      }
-
-      /* Breaker Cards */
-      .breaker-card {
-        background: var(--card-bg);
-        border: 1px solid var(--card-border);
-        border-radius: 10px;
-        padding: 12px;
-        transition: all 0.2s ease;
-        cursor: default;
-      }
-
-      .breaker-card.has-devices {
-        cursor: pointer;
-      }
-
-      .breaker-card:hover {
-        border-color: color-mix(in srgb, var(--accent-color) 50%, transparent);
-      }
-
-      .breaker-card.main-breaker {
-        border-color: var(--accent-color);
-        background: linear-gradient(135deg, 
-          color-mix(in srgb, var(--accent-color) 8%, var(--card-bg)),
-          var(--card-bg)
-        );
-      }
-
-      .breaker-card.expanded {
-        border-color: var(--accent-color);
-      }
-
-      .breaker-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 10px;
-      }
-
-      .breaker-name {
-        font-size: 12px;
-        font-weight: 700;
-        color: var(--accent-color);
-      }
-
-      .breaker-status {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--card-border);
-        transition: all 0.3s ease;
-      }
-
-      .breaker-status.active {
-        background: #22c55e;
-        box-shadow: 0 0 8px #22c55e;
-      }
-
-      .breaker-stats {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-      }
-
-      .stat-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-
-      .stat-label {
-        font-size: 10px;
-        color: var(--text-secondary);
-      }
-
-      .stat-value {
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--text-primary);
-      }
-
-      .stat-value[data-entity]:hover {
-        color: var(--accent-color);
-      }
-
-      .stat-divider {
-        height: 1px;
-        background: var(--card-border);
-        margin: 4px 0;
-      }
-
-      .expand-hint {
-        display: flex;
-        justify-content: center;
-        margin-top: 8px;
-        color: var(--text-secondary);
-        opacity: 0.5;
-        transition: all 0.2s ease;
-      }
-
-      .breaker-card.expanded .expand-hint {
-        transform: rotate(180deg);
-        opacity: 1;
-        color: var(--accent-color);
-      }
-
-      /* Devices Container */
-      .devices-container {
-        margin-top: 16px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .devices-panel {
-        background: var(--card-surface);
-        border: 1px solid var(--card-border);
-        border-radius: 12px;
-        padding: 0;
-        margin-bottom: 12px;
-        max-height: 0;
-        overflow: hidden;
-        opacity: 0;
-        transition: all 0.3s ease;
-      }
-
-      .devices-panel.expanded {
-        padding: 16px;
-        max-height: 500px;
-        opacity: 1;
-      }
-
-      .devices-header {
-        margin-bottom: 12px;
-      }
-
-      .devices-title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--accent-color);
-      }
-
-      .devices-table {
-        font-size: 12px;
-      }
-
-      .table-header {
-        display: grid;
-        grid-template-columns: 2fr 1fr 1fr 1fr;
-        gap: 12px;
-        padding: 8px 12px;
-        background: var(--card-bg);
-        border-radius: 8px;
-        margin-bottom: 6px;
-        font-weight: 600;
-        color: var(--text-secondary);
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-
-      .table-row {
-        display: grid;
-        grid-template-columns: 2fr 1fr 1fr 1fr;
-        gap: 12px;
-        padding: 10px 12px;
-        border-radius: 8px;
-        transition: background 0.2s ease;
-        cursor: pointer;
-      }
-
-      .table-row:hover {
-        background: var(--card-bg);
-      }
-
-      .device-name {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: var(--text-primary);
-        font-weight: 500;
-      }
-
-      .device-name ha-icon {
-        --mdc-icon-size: 18px;
-        color: var(--text-secondary);
-      }
-
-      .device-avg,
-      .device-power,
-      .device-daily {
-        color: var(--text-primary);
-        text-align: right;
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-      }
-
-      /* Responsive */
-      @media (max-width: 500px) {
-        .powercard-container {
-          padding: 14px;
-        }
-
-        .power-sources {
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .source-card {
-          max-width: none;
-        }
-
-        .breakers-grid {
-          grid-template-columns: repeat(2, 1fr);
-        }
-
-        .table-header,
-        .table-row {
-          grid-template-columns: 1.5fr 1fr 1fr;
-          font-size: 11px;
-        }
-
-        .table-header span:nth-child(2),
-        .table-row .device-avg {
-          display: none;
+      const values = card.querySelectorAll('.stat-item .stat-value');
+      if (values[0]) values[0].textContent = this._formatEnergy(energy, cb.entity_energy);
+      if (values[1]) values[1].textContent = this._formatCurrent(current);
+      if (values[2]) values[2].textContent = this._formatPower(power);
+      
+      // Update device panel if expanded
+      const panel = this.shadowRoot.querySelector(`[data-panel="cb-${index}"]`);
+      if (panel && this._expandedBreakers.has(`cb-${index}`)) {
+        const breakerId = `cb-${index}`;
+        const isExpanded = this._expandedBreakers.has(breakerId);
+        const newPanelHtml = this._renderDevicesPanel(cb, breakerId, isExpanded);
+        
+        // Create temp container to parse HTML
+        const temp = document.createElement('div');
+        temp.innerHTML = newPanelHtml;
+        const newPanel = temp.firstElementChild;
+        
+        // Only update table content to preserve expand state
+        const oldTable = panel.querySelector('.devices-table');
+        const newTable = newPanel.querySelector('.devices-table');
+        if (oldTable && newTable) {
+          oldTable.innerHTML = newTable.innerHTML;
         }
       }
-    `;
-  }
-
-  disconnectedCallback() {
-    if (this._animationFrame) {
-      cancelAnimationFrame(this._animationFrame);
-    }
-    if (this._resizeObserver) {
-      this._resizeObserver.disconnect();
-    }
+    });
   }
 }
 
-// ============================================================================
-// VISUAL EDITOR CLASS
-// ============================================================================
+// Visual Editor Component
 class HAPowercardEditor extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
     this._config = {};
     this._hass = null;
-    this._activeTab = 'general';
-    this._editingBreakerIndex = null;
-    this._editingDeviceIndex = null;
-  }
-
-  setConfig(config) {
-    this._config = {
-      title: 'Distribution Board',
-      animation_speed: 2,
-      show_solar: true,
-      show_grid: true,
-      show_battery: false,
-      accent_color: '#f59e0b',
-      solar: { name: 'Solar' },
-      grid: { name: 'Grid' },
-      battery: { name: 'Battery' },
-      main_breaker: { name: 'Main CB' },
-      circuit_breakers: [],
-      ...config
-    };
-    this._render();
+    this._editingBreaker = null;
+    this._editingDevice = null;
   }
 
   set hass(hass) {
     this._hass = hass;
-    // Update entity pickers if they exist
-    this.shadowRoot.querySelectorAll('ha-entity-picker').forEach(picker => {
-      picker.hass = hass;
-    });
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    this._render();
   }
 
   _render() {
     this.shadowRoot.innerHTML = `
-      <style>${this._getEditorStyles()}</style>
-      <div class="editor-container">
-        ${this._renderTabs()}
-        ${this._renderTabContent()}
-      </div>
-    `;
-    this._setupEditorListeners();
-  }
-
-  _renderTabs() {
-    const tabs = [
-      { id: 'general', label: 'General', icon: 'M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z' },
-      { id: 'sources', label: 'Power Sources', icon: 'M11.5,20L16.36,10.27H13V4L8,13.73H11.5V20Z' },
-      { id: 'main', label: 'Main Breaker', icon: 'M13,14H11V10H13M13,18H11V16H13M1,21H23L12,2L1,21Z' },
-      { id: 'breakers', label: 'Circuit Breakers', icon: 'M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3M19,5V19H5V5H19Z' }
-    ];
-
-    return `
-      <div class="tabs">
-        ${tabs.map(tab => `
-          <button class="tab ${this._activeTab === tab.id ? 'active' : ''}" data-tab="${tab.id}">
-            <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="${tab.icon}"/></svg>
-            <span>${tab.label}</span>
-          </button>
-        `).join('')}
-      </div>
-    `;
-  }
-
-  _renderTabContent() {
-    switch (this._activeTab) {
-      case 'general': return this._renderGeneralTab();
-      case 'sources': return this._renderSourcesTab();
-      case 'main': return this._renderMainBreakerTab();
-      case 'breakers': return this._renderBreakersTab();
-      default: return '';
-    }
-  }
-
-  _renderGeneralTab() {
-    return `
-      <div class="tab-content">
+      <style>
+        :host {
+          display: block;
+          padding: 16px;
+        }
+        
+        .editor-section {
+          margin-bottom: 24px;
+          background: var(--ha-card-background, #1c1c1c);
+          border-radius: 8px;
+          padding: 16px;
+        }
+        
+        .section-title {
+          font-size: 1rem;
+          font-weight: 600;
+          margin-bottom: 16px;
+          color: var(--primary-text-color, #fff);
+          border-bottom: 1px solid var(--divider-color, #333);
+          padding-bottom: 8px;
+        }
+        
+        .form-group {
+          margin-bottom: 12px;
+        }
+        
+        label {
+          display: block;
+          font-size: 0.85rem;
+          color: var(--secondary-text-color, #888);
+          margin-bottom: 4px;
+        }
+        
+        input, select {
+          width: 100%;
+          padding: 8px 12px;
+          border: 1px solid var(--divider-color, #333);
+          border-radius: 6px;
+          background: var(--card-background-color, #2a2a2a);
+          color: var(--primary-text-color, #fff);
+          font-size: 0.9rem;
+        }
+        
+        input:focus, select:focus {
+          outline: none;
+          border-color: var(--accent-color, #f59e0b);
+        }
+        
+        .checkbox-group {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+          width: auto;
+        }
+        
+        .entity-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
+        
+        .breakers-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        
+        .breaker-item {
+          background: rgba(0,0,0,0.2);
+          border-radius: 6px;
+          padding: 12px;
+        }
+        
+        .breaker-item-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+        
+        .breaker-item-header input {
+          flex: 1;
+        }
+        
+        .devices-list {
+          margin-top: 8px;
+          padding-left: 12px;
+          border-left: 2px solid var(--divider-color, #333);
+        }
+        
+        .device-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 0;
+        }
+        
+        .device-item input {
+          flex: 1;
+        }
+        
+        .sub-device-item {
+          padding-left: 16px;
+          opacity: 0.8;
+        }
+        
+        .sub-device-item::before {
+          content: '└ ';
+          color: var(--divider-color, #555);
+        }
+        
+        button {
+          padding: 6px 12px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 0.8rem;
+          transition: all 0.2s ease;
+        }
+        
+        button.primary {
+          background: var(--accent-color, #f59e0b);
+          color: #000;
+        }
+        
+        button.secondary {
+          background: var(--divider-color, #333);
+          color: var(--primary-text-color, #fff);
+        }
+        
+        button.danger {
+          background: #ef4444;
+          color: #fff;
+          padding: 4px 8px;
+        }
+        
+        button.small {
+          padding: 4px 8px;
+          font-size: 0.75rem;
+        }
+        
+        button:hover {
+          opacity: 0.8;
+        }
+        
+        .add-btn {
+          margin-top: 8px;
+        }
+      </style>
+      
+      <div class="editor-section">
+        <div class="section-title">General Settings</div>
         <div class="form-group">
           <label>Card Title</label>
-          <input type="text" class="form-input" data-field="title" value="${this._config.title || ''}" placeholder="Distribution Board">
+          <input type="text" id="title" value="${this._config.title || 'Distribution Board'}" />
         </div>
-
         <div class="form-group">
           <label>Accent Color</label>
-          <div class="color-picker">
-            <input type="color" data-field="accent_color" value="${this._config.accent_color || '#f59e0b'}">
-            <input type="text" class="form-input" data-field="accent_color" value="${this._config.accent_color || '#f59e0b'}" placeholder="#f59e0b">
-          </div>
+          <input type="color" id="accent_color" value="${this._config.accent_color || '#f59e0b'}" />
         </div>
-
-        <div class="form-group">
-          <label>Animation Speed (seconds)</label>
-          <input type="number" class="form-input" data-field="animation_speed" value="${this._config.animation_speed || 2}" min="0.5" max="10" step="0.5">
+        <div class="form-group checkbox-group">
+          <input type="checkbox" id="show_solar" ${this._config.show_solar !== false ? 'checked' : ''} />
+          <label for="show_solar">Show Solar</label>
         </div>
-      </div>
-    `;
-  }
-
-  _renderSourcesTab() {
-    return `
-      <div class="tab-content">
-        <!-- Solar -->
-        <div class="section">
-          <div class="section-header">
-            <label class="toggle-label">
-              <input type="checkbox" data-field="show_solar" ${this._config.show_solar ? 'checked' : ''}>
-              <span class="toggle-switch"></span>
-              <span>Enable Solar</span>
-            </label>
-          </div>
-          ${this._config.show_solar ? `
-            <div class="section-content">
-              <div class="form-group">
-                <label>Name</label>
-                <input type="text" class="form-input" data-field="solar.name" value="${this._config.solar?.name || ''}" placeholder="Solar">
-              </div>
-              <div class="form-group">
-                <label>Power Entity</label>
-                <ha-entity-picker
-                  .hass="${this._hass}"
-                  .value="${this._config.solar?.entity || ''}"
-                  data-field="solar.entity"
-                  allow-custom-entity
-                  include-domains='["sensor"]'
-                ></ha-entity-picker>
-              </div>
-            </div>
-          ` : ''}
+        <div class="form-group checkbox-group">
+          <input type="checkbox" id="show_grid" ${this._config.show_grid !== false ? 'checked' : ''} />
+          <label for="show_grid">Show Grid</label>
         </div>
-
-        <!-- Grid -->
-        <div class="section">
-          <div class="section-header">
-            <label class="toggle-label">
-              <input type="checkbox" data-field="show_grid" ${this._config.show_grid ? 'checked' : ''}>
-              <span class="toggle-switch"></span>
-              <span>Enable Grid</span>
-            </label>
-          </div>
-          ${this._config.show_grid ? `
-            <div class="section-content">
-              <div class="form-group">
-                <label>Name</label>
-                <input type="text" class="form-input" data-field="grid.name" value="${this._config.grid?.name || ''}" placeholder="Grid">
-              </div>
-              <div class="form-group">
-                <label>Power Entity</label>
-                <ha-entity-picker
-                  .hass="${this._hass}"
-                  .value="${this._config.grid?.entity || ''}"
-                  data-field="grid.entity"
-                  allow-custom-entity
-                  include-domains='["sensor"]'
-                ></ha-entity-picker>
-              </div>
-            </div>
-          ` : ''}
-        </div>
-
-        <!-- Battery -->
-        <div class="section">
-          <div class="section-header">
-            <label class="toggle-label">
-              <input type="checkbox" data-field="show_battery" ${this._config.show_battery ? 'checked' : ''}>
-              <span class="toggle-switch"></span>
-              <span>Enable Battery</span>
-            </label>
-          </div>
-          ${this._config.show_battery ? `
-            <div class="section-content">
-              <div class="form-group">
-                <label>Name</label>
-                <input type="text" class="form-input" data-field="battery.name" value="${this._config.battery?.name || ''}" placeholder="Battery">
-              </div>
-              <div class="form-group">
-                <label>Power Entity</label>
-                <ha-entity-picker
-                  .hass="${this._hass}"
-                  .value="${this._config.battery?.entity || ''}"
-                  data-field="battery.entity"
-                  allow-custom-entity
-                  include-domains='["sensor"]'
-                ></ha-entity-picker>
-              </div>
-              <div class="form-group">
-                <label>State of Charge Entity (%)</label>
-                <ha-entity-picker
-                  .hass="${this._hass}"
-                  .value="${this._config.battery?.entity_soc || ''}"
-                  data-field="battery.entity_soc"
-                  allow-custom-entity
-                  include-domains='["sensor"]'
-                ></ha-entity-picker>
-              </div>
-            </div>
-          ` : ''}
+        <div class="form-group checkbox-group">
+          <input type="checkbox" id="show_battery" ${this._config.show_battery ? 'checked' : ''} />
+          <label for="show_battery">Show Battery</label>
         </div>
       </div>
-    `;
-  }
-
-  _renderMainBreakerTab() {
-    const main = this._config.main_breaker || {};
-    return `
-      <div class="tab-content">
+      
+      <div class="editor-section">
+        <div class="section-title">Solar Configuration</div>
+        <div class="entity-grid">
+          <div class="form-group">
+            <label>Power Entity</label>
+            <input type="text" id="solar_entity" value="${this._config.solar?.entity || ''}" placeholder="sensor.solar_power" />
+          </div>
+          <div class="form-group">
+            <label>Display Name</label>
+            <input type="text" id="solar_name" value="${this._config.solar?.name || 'Solar'}" />
+          </div>
+        </div>
+      </div>
+      
+      <div class="editor-section">
+        <div class="section-title">Grid Configuration</div>
+        <div class="entity-grid">
+          <div class="form-group">
+            <label>Power Entity</label>
+            <input type="text" id="grid_entity" value="${this._config.grid?.entity || ''}" placeholder="sensor.grid_power" />
+          </div>
+          <div class="form-group">
+            <label>Display Name</label>
+            <input type="text" id="grid_name" value="${this._config.grid?.name || 'Grid'}" />
+          </div>
+        </div>
+      </div>
+      
+      <div class="editor-section">
+        <div class="section-title">Main Breaker Configuration</div>
         <div class="form-group">
           <label>Name</label>
-          <input type="text" class="form-input" data-field="main_breaker.name" value="${main.name || ''}" placeholder="Main CB">
+          <input type="text" id="main_name" value="${this._config.main_breaker?.name || 'Main CB'}" />
         </div>
-        <div class="form-group">
-          <label>Power Entity (W)</label>
-          <ha-entity-picker
-            .hass="${this._hass}"
-            .value="${main.entity_power || ''}"
-            data-field="main_breaker.entity_power"
-            allow-custom-entity
-            include-domains='["sensor"]'
-          ></ha-entity-picker>
-        </div>
-        <div class="form-group">
-          <label>Energy Entity (kWh - Daily)</label>
-          <ha-entity-picker
-            .hass="${this._hass}"
-            .value="${main.entity_energy || ''}"
-            data-field="main_breaker.entity_energy"
-            allow-custom-entity
-            include-domains='["sensor"]'
-          ></ha-entity-picker>
-        </div>
-        <div class="form-group">
-          <label>Current Entity (A)</label>
-          <ha-entity-picker
-            .hass="${this._hass}"
-            .value="${main.entity_current || ''}"
-            data-field="main_breaker.entity_current"
-            allow-custom-entity
-            include-domains='["sensor"]'
-          ></ha-entity-picker>
+        <div class="entity-grid">
+          <div class="form-group">
+            <label>Power Entity</label>
+            <input type="text" id="main_power" value="${this._config.main_breaker?.entity_power || ''}" />
+          </div>
+          <div class="form-group">
+            <label>Energy Entity</label>
+            <input type="text" id="main_energy" value="${this._config.main_breaker?.entity_energy || ''}" />
+          </div>
+          <div class="form-group">
+            <label>Current Entity</label>
+            <input type="text" id="main_current" value="${this._config.main_breaker?.entity_current || ''}" />
+          </div>
         </div>
       </div>
+      
+      <div class="editor-section">
+        <div class="section-title">Circuit Breakers</div>
+        <div class="breakers-list" id="breakers-list">
+          ${this._renderBreakersList()}
+        </div>
+        <button class="primary add-btn" id="add-breaker">+ Add Circuit Breaker</button>
+      </div>
     `;
+    
+    this._attachEditorListeners();
   }
 
-  _renderBreakersTab() {
+  _renderBreakersList() {
     const breakers = this._config.circuit_breakers || [];
-    
-    // If editing a breaker, show the breaker editor
-    if (this._editingBreakerIndex !== null) {
-      return this._renderBreakerEditor(breakers[this._editingBreakerIndex], this._editingBreakerIndex);
+    if (breakers.length === 0) {
+      return '<p style="color: var(--secondary-text-color); font-size: 0.85rem;">No circuit breakers configured.</p>';
     }
-
-    return `
-      <div class="tab-content">
-        <div class="breakers-list">
-          ${breakers.map((cb, index) => `
-            <div class="breaker-item">
-              <div class="breaker-item-info">
-                <span class="breaker-item-name">${cb.name || `CB-${index + 1}`}</span>
-                <span class="breaker-item-meta">${cb.devices?.length || 0} devices</span>
-              </div>
-              <div class="breaker-item-actions">
-                <button class="icon-btn" data-action="edit-breaker" data-index="${index}" title="Edit">
-                  <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"/></svg>
-                </button>
-                <button class="icon-btn danger" data-action="delete-breaker" data-index="${index}" title="Delete">
-                  <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>
-                </button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        
-        <button class="add-btn" data-action="add-breaker">
-          <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg>
-          Add Circuit Breaker
-        </button>
-      </div>
-    `;
-  }
-
-  _renderBreakerEditor(breaker, index) {
-    const cb = breaker || { name: '', devices: [] };
     
-    // If editing a device, show device editor
-    if (this._editingDeviceIndex !== null) {
-      const device = cb.devices?.[this._editingDeviceIndex] || {};
-      return this._renderDeviceEditor(device, this._editingDeviceIndex, index);
-    }
-
-    return `
-      <div class="tab-content">
-        <button class="back-btn" data-action="back-to-breakers">
-          <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"/></svg>
-          Back to Breakers
-        </button>
-
-        <h3 class="editor-subtitle">${cb.name || `Circuit Breaker ${index + 1}`}</h3>
-
-        <div class="form-group">
-          <label>Name</label>
-          <input type="text" class="form-input" data-breaker-field="name" data-index="${index}" value="${cb.name || ''}" placeholder="CB-1 Kitchen">
+    return breakers.map((cb, index) => `
+      <div class="breaker-item" data-index="${index}">
+        <div class="breaker-item-header">
+          <input type="text" value="${cb.name || 'CB-' + (index + 1)}" data-field="name" data-breaker="${index}" />
+          <button class="danger small" data-action="delete-breaker" data-index="${index}">✕</button>
         </div>
-        <div class="form-group">
-          <label>Power Entity (W)</label>
-          <ha-entity-picker
-            .hass="${this._hass}"
-            .value="${cb.entity_power || ''}"
-            data-breaker-field="entity_power"
-            data-index="${index}"
-            allow-custom-entity
-            include-domains='["sensor"]'
-          ></ha-entity-picker>
+        <div class="entity-grid">
+          <div class="form-group">
+            <label>Power Entity</label>
+            <input type="text" value="${cb.entity_power || ''}" data-field="entity_power" data-breaker="${index}" placeholder="sensor.power" />
+          </div>
+          <div class="form-group">
+            <label>Energy Entity</label>
+            <input type="text" value="${cb.entity_energy || ''}" data-field="entity_energy" data-breaker="${index}" placeholder="sensor.energy" />
+          </div>
+          <div class="form-group">
+            <label>Current Entity</label>
+            <input type="text" value="${cb.entity_current || ''}" data-field="entity_current" data-breaker="${index}" placeholder="sensor.current" />
+          </div>
         </div>
-        <div class="form-group">
-          <label>Energy Entity (kWh - Daily)</label>
-          <ha-entity-picker
-            .hass="${this._hass}"
-            .value="${cb.entity_energy || ''}"
-            data-breaker-field="entity_energy"
-            data-index="${index}"
-            allow-custom-entity
-            include-domains='["sensor"]'
-          ></ha-entity-picker>
-        </div>
-        <div class="form-group">
-          <label>Current Entity (A)</label>
-          <ha-entity-picker
-            .hass="${this._hass}"
-            .value="${cb.entity_current || ''}"
-            data-breaker-field="entity_current"
-            data-index="${index}"
-            allow-custom-entity
-            include-domains='["sensor"]'
-          ></ha-entity-picker>
-        </div>
-
-        <div class="section-divider"></div>
-
-        <h4 class="devices-header-title">Connected Devices</h4>
-        
         <div class="devices-list">
-          ${(cb.devices || []).map((device, devIndex) => `
-            <div class="device-item">
-              <div class="device-item-info">
-                ${device.icon ? `<ha-icon icon="${device.icon}"></ha-icon>` : '<ha-icon icon="mdi:power-plug"></ha-icon>'}
-                <span>${device.name || `Device ${devIndex + 1}`}</span>
-              </div>
-              <div class="device-item-actions">
-                <button class="icon-btn" data-action="edit-device" data-breaker="${index}" data-device="${devIndex}" title="Edit">
-                  <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"/></svg>
-                </button>
-                <button class="icon-btn danger" data-action="delete-device" data-breaker="${index}" data-device="${devIndex}" title="Delete">
-                  <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>
-                </button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-
-        <button class="add-btn secondary" data-action="add-device" data-breaker="${index}">
-          <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg>
-          Add Device
-        </button>
-      </div>
-    `;
-  }
-
-  _renderDeviceEditor(device, devIndex, breakerIndex) {
-    const dev = device || {};
-    const commonIcons = [
-      'mdi:power-plug', 'mdi:lightning-bolt', 'mdi:fridge', 'mdi:stove', 'mdi:microwave',
-      'mdi:dishwasher', 'mdi:washing-machine', 'mdi:tumble-dryer', 'mdi:television',
-      'mdi:desktop-tower', 'mdi:laptop', 'mdi:lamp', 'mdi:ceiling-light', 'mdi:fan',
-      'mdi:air-conditioner', 'mdi:water-heater', 'mdi:ev-station', 'mdi:car-electric',
-      'mdi:speaker', 'mdi:printer', 'mdi:coffee-maker', 'mdi:toaster'
-    ];
-
-    return `
-      <div class="tab-content">
-        <button class="back-btn" data-action="back-to-breaker" data-breaker="${breakerIndex}">
-          <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"/></svg>
-          Back to Breaker
-        </button>
-
-        <h3 class="editor-subtitle">${dev.name || `Device ${devIndex + 1}`}</h3>
-
-        <div class="form-group">
-          <label>Device Name</label>
-          <input type="text" class="form-input" data-device-field="name" data-breaker="${breakerIndex}" data-device="${devIndex}" value="${dev.name || ''}" placeholder="Refrigerator">
-        </div>
-
-        <div class="form-group">
-          <label>Icon</label>
-          <div class="icon-selector">
-            <input type="text" class="form-input icon-input" data-device-field="icon" data-breaker="${breakerIndex}" data-device="${devIndex}" value="${dev.icon || ''}" placeholder="mdi:power-plug">
-            <div class="icon-preview">
-              <ha-icon icon="${dev.icon || 'mdi:power-plug'}"></ha-icon>
-            </div>
-          </div>
-          <div class="icon-grid">
-            ${commonIcons.map(icon => `
-              <button class="icon-option ${dev.icon === icon ? 'selected' : ''}" data-select-icon="${icon}" data-breaker="${breakerIndex}" data-device="${devIndex}">
-                <ha-icon icon="${icon}"></ha-icon>
-              </button>
-            `).join('')}
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>Power Entity (W) - Current consumption</label>
-          <ha-entity-picker
-            .hass="${this._hass}"
-            .value="${dev.entity || ''}"
-            data-device-field="entity"
-            data-breaker="${breakerIndex}"
-            data-device="${devIndex}"
-            allow-custom-entity
-            include-domains='["sensor"]'
-          ></ha-entity-picker>
-        </div>
-
-        <div class="form-group">
-          <label>Average Hourly Entity (Wh)</label>
-          <ha-entity-picker
-            .hass="${this._hass}"
-            .value="${dev.entity_avg || ''}"
-            data-device-field="entity_avg"
-            data-breaker="${breakerIndex}"
-            data-device="${devIndex}"
-            allow-custom-entity
-            include-domains='["sensor"]'
-          ></ha-entity-picker>
-        </div>
-
-        <div class="form-group">
-          <label>Daily Energy Entity (kWh)</label>
-          <ha-entity-picker
-            .hass="${this._hass}"
-            .value="${dev.entity_daily || ''}"
-            data-device-field="entity_daily"
-            data-breaker="${breakerIndex}"
-            data-device="${devIndex}"
-            allow-custom-entity
-            include-domains='["sensor"]'
-          ></ha-entity-picker>
+          <label style="font-weight: 600; margin-bottom: 8px; display: block;">Devices</label>
+          ${this._renderDevicesList(cb.devices || [], index)}
+          <button class="secondary small add-btn" data-action="add-device" data-breaker="${index}">+ Add Device</button>
         </div>
       </div>
-    `;
+    `).join('');
   }
 
-  _setupEditorListeners() {
-    // Tab switching
-    this.shadowRoot.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        this._activeTab = tab.dataset.tab;
-        this._editingBreakerIndex = null;
-        this._editingDeviceIndex = null;
+  _renderDevicesList(devices, breakerIndex) {
+    if (devices.length === 0) {
+      return '<p style="color: var(--secondary-text-color); font-size: 0.75rem; margin: 4px 0;">No devices</p>';
+    }
+    
+    return devices.map((device, deviceIndex) => `
+      <div class="device-item" data-breaker="${breakerIndex}" data-device="${deviceIndex}">
+        <input type="text" value="${device.name || ''}" data-field="device-name" placeholder="Device name" />
+        <input type="text" value="${device.entity || ''}" data-field="device-entity" placeholder="sensor.device_power" style="flex: 1.5;" />
+        <button class="secondary small" data-action="add-subdevice" data-breaker="${breakerIndex}" data-device="${deviceIndex}">+Sub</button>
+        <button class="danger small" data-action="delete-device" data-breaker="${breakerIndex}" data-device="${deviceIndex}">✕</button>
+      </div>
+      ${this._renderSubDevicesList(device.sub_devices || [], breakerIndex, deviceIndex)}
+    `).join('');
+  }
+
+  _renderSubDevicesList(subDevices, breakerIndex, deviceIndex) {
+    return subDevices.map((subDev, subIndex) => `
+      <div class="device-item sub-device-item" data-breaker="${breakerIndex}" data-device="${deviceIndex}" data-subdevice="${subIndex}">
+        <input type="text" value="${subDev.name || ''}" data-field="subdevice-name" placeholder="Sub-device name" />
+        <input type="text" value="${subDev.entity || ''}" data-field="subdevice-entity" placeholder="sensor.subdevice_power" style="flex: 1.5;" />
+        <button class="danger small" data-action="delete-subdevice" data-breaker="${breakerIndex}" data-device="${deviceIndex}" data-subdevice="${subIndex}">✕</button>
+      </div>
+    `).join('');
+  }
+
+  _attachEditorListeners() {
+    // General settings
+    ['title', 'accent_color', 'show_solar', 'show_grid', 'show_battery'].forEach(id => {
+      const el = this.shadowRoot.getElementById(id);
+      if (el) {
+        el.addEventListener('change', (e) => {
+          const value = el.type === 'checkbox' ? el.checked : el.value;
+          this._updateConfig(id, value);
+        });
+      }
+    });
+    
+    // Solar config
+    ['solar_entity', 'solar_name'].forEach(id => {
+      const el = this.shadowRoot.getElementById(id);
+      if (el) {
+        el.addEventListener('change', () => {
+          this._updateConfig('solar', {
+            ...this._config.solar,
+            entity: this.shadowRoot.getElementById('solar_entity').value,
+            name: this.shadowRoot.getElementById('solar_name').value
+          });
+        });
+      }
+    });
+    
+    // Grid config
+    ['grid_entity', 'grid_name'].forEach(id => {
+      const el = this.shadowRoot.getElementById(id);
+      if (el) {
+        el.addEventListener('change', () => {
+          this._updateConfig('grid', {
+            ...this._config.grid,
+            entity: this.shadowRoot.getElementById('grid_entity').value,
+            name: this.shadowRoot.getElementById('grid_name').value
+          });
+        });
+      }
+    });
+    
+    // Main breaker config
+    ['main_name', 'main_power', 'main_energy', 'main_current'].forEach(id => {
+      const el = this.shadowRoot.getElementById(id);
+      if (el) {
+        el.addEventListener('change', () => {
+          this._updateConfig('main_breaker', {
+            ...this._config.main_breaker,
+            name: this.shadowRoot.getElementById('main_name').value,
+            entity_power: this.shadowRoot.getElementById('main_power').value,
+            entity_energy: this.shadowRoot.getElementById('main_energy').value,
+            entity_current: this.shadowRoot.getElementById('main_current').value
+          });
+        });
+      }
+    });
+    
+    // Add breaker button
+    const addBreakerBtn = this.shadowRoot.getElementById('add-breaker');
+    if (addBreakerBtn) {
+      addBreakerBtn.addEventListener('click', () => {
+        const breakers = [...(this._config.circuit_breakers || [])];
+        breakers.push({ name: `CB-${breakers.length + 1}`, devices: [] });
+        this._updateConfig('circuit_breakers', breakers);
         this._render();
       });
-    });
-
-    // Text/number inputs
-    this.shadowRoot.querySelectorAll('input[data-field]').forEach(input => {
+    }
+    
+    // Breaker field changes
+    this.shadowRoot.querySelectorAll('[data-breaker][data-field]').forEach(input => {
       input.addEventListener('change', (e) => {
-        const field = e.target.dataset.field;
-        let value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-        if (e.target.type === 'number') value = parseFloat(value);
-        this._updateConfigField(field, value);
+        const breakerIndex = parseInt(input.dataset.breaker);
+        const field = input.dataset.field;
+        const breakers = [...(this._config.circuit_breakers || [])];
+        breakers[breakerIndex] = { ...breakers[breakerIndex], [field]: input.value };
+        this._updateConfig('circuit_breakers', breakers);
       });
     });
-
-    // Color input sync
-    this.shadowRoot.querySelectorAll('input[type="color"]').forEach(colorInput => {
-      colorInput.addEventListener('input', (e) => {
-        const field = e.target.dataset.field;
-        const textInput = this.shadowRoot.querySelector(`input[type="text"][data-field="${field}"]`);
-        if (textInput) textInput.value = e.target.value;
-        this._updateConfigField(field, e.target.value);
+    
+    // Device field changes
+    this.shadowRoot.querySelectorAll('.device-item:not(.sub-device-item)').forEach(item => {
+      const breakerIndex = parseInt(item.dataset.breaker);
+      const deviceIndex = parseInt(item.dataset.device);
+      
+      const nameInput = item.querySelector('[data-field="device-name"]');
+      const entityInput = item.querySelector('[data-field="device-entity"]');
+      
+      [nameInput, entityInput].forEach(input => {
+        if (input) {
+          input.addEventListener('change', () => {
+            const breakers = [...(this._config.circuit_breakers || [])];
+            const devices = [...(breakers[breakerIndex].devices || [])];
+            devices[deviceIndex] = {
+              ...devices[deviceIndex],
+              name: nameInput.value,
+              entity: entityInput.value
+            };
+            breakers[breakerIndex] = { ...breakers[breakerIndex], devices };
+            this._updateConfig('circuit_breakers', breakers);
+          });
+        }
       });
     });
-
-    // Entity pickers
-    this.shadowRoot.querySelectorAll('ha-entity-picker[data-field]').forEach(picker => {
-      picker.addEventListener('value-changed', (e) => {
-        this._updateConfigField(picker.dataset.field, e.detail.value);
+    
+    // Sub-device field changes
+    this.shadowRoot.querySelectorAll('.sub-device-item').forEach(item => {
+      const breakerIndex = parseInt(item.dataset.breaker);
+      const deviceIndex = parseInt(item.dataset.device);
+      const subIndex = parseInt(item.dataset.subdevice);
+      
+      const nameInput = item.querySelector('[data-field="subdevice-name"]');
+      const entityInput = item.querySelector('[data-field="subdevice-entity"]');
+      
+      [nameInput, entityInput].forEach(input => {
+        if (input) {
+          input.addEventListener('change', () => {
+            const breakers = [...(this._config.circuit_breakers || [])];
+            const devices = [...(breakers[breakerIndex].devices || [])];
+            const subDevices = [...(devices[deviceIndex].sub_devices || [])];
+            subDevices[subIndex] = {
+              ...subDevices[subIndex],
+              name: nameInput.value,
+              entity: entityInput.value
+            };
+            devices[deviceIndex] = { ...devices[deviceIndex], sub_devices: subDevices };
+            breakers[breakerIndex] = { ...breakers[breakerIndex], devices };
+            this._updateConfig('circuit_breakers', breakers);
+          });
+        }
       });
     });
-
-    // Breaker field inputs
-    this.shadowRoot.querySelectorAll('input[data-breaker-field]').forEach(input => {
-      input.addEventListener('change', (e) => {
-        const index = parseInt(e.target.dataset.index);
-        const field = e.target.dataset.breakerField;
-        this._updateBreakerField(index, field, e.target.value);
-      });
-    });
-
-    // Breaker entity pickers
-    this.shadowRoot.querySelectorAll('ha-entity-picker[data-breaker-field]').forEach(picker => {
-      picker.addEventListener('value-changed', (e) => {
-        const index = parseInt(picker.dataset.index);
-        const field = picker.dataset.breakerField;
-        this._updateBreakerField(index, field, e.detail.value);
-      });
-    });
-
-    // Device field inputs
-    this.shadowRoot.querySelectorAll('input[data-device-field]').forEach(input => {
-      input.addEventListener('change', (e) => {
-        const breakerIndex = parseInt(e.target.dataset.breaker);
-        const deviceIndex = parseInt(e.target.dataset.device);
-        const field = e.target.dataset.deviceField;
-        this._updateDeviceField(breakerIndex, deviceIndex, field, e.target.value);
-      });
-    });
-
-    // Device entity pickers
-    this.shadowRoot.querySelectorAll('ha-entity-picker[data-device-field]').forEach(picker => {
-      picker.addEventListener('value-changed', (e) => {
-        const breakerIndex = parseInt(picker.dataset.breaker);
-        const deviceIndex = parseInt(picker.dataset.device);
-        const field = picker.dataset.deviceField;
-        this._updateDeviceField(breakerIndex, deviceIndex, field, e.detail.value);
-      });
-    });
-
-    // Icon selection
-    this.shadowRoot.querySelectorAll('[data-select-icon]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const icon = btn.dataset.selectIcon;
-        const breakerIndex = parseInt(btn.dataset.breaker);
-        const deviceIndex = parseInt(btn.dataset.device);
-        this._updateDeviceField(breakerIndex, deviceIndex, 'icon', icon);
-        this._render();
-      });
-    });
-
+    
     // Action buttons
-    this.shadowRoot.querySelectorAll('[data-action]').forEach(btn => {
-      btn.addEventListener('click', () => {
+    this.shadowRoot.querySelectorAll('button[data-action]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const action = btn.dataset.action;
-        const index = btn.dataset.index !== undefined ? parseInt(btn.dataset.index) : null;
-        const breakerIndex = btn.dataset.breaker !== undefined ? parseInt(btn.dataset.breaker) : null;
-        const deviceIndex = btn.dataset.device !== undefined ? parseInt(btn.dataset.device) : null;
-
+        const breakerIndex = parseInt(btn.dataset.breaker || btn.dataset.index);
+        const deviceIndex = parseInt(btn.dataset.device);
+        const subIndex = parseInt(btn.dataset.subdevice);
+        
+        const breakers = [...(this._config.circuit_breakers || [])];
+        
         switch (action) {
-          case 'add-breaker':
-            this._addBreaker();
-            break;
-          case 'edit-breaker':
-            this._editingBreakerIndex = index;
-            this._editingDeviceIndex = null;
-            this._render();
-            break;
           case 'delete-breaker':
-            this._deleteBreaker(index);
-            break;
-          case 'back-to-breakers':
-            this._editingBreakerIndex = null;
-            this._editingDeviceIndex = null;
+            breakers.splice(breakerIndex, 1);
+            this._updateConfig('circuit_breakers', breakers);
             this._render();
             break;
+            
           case 'add-device':
-            this._addDevice(breakerIndex);
-            break;
-          case 'edit-device':
-            this._editingDeviceIndex = deviceIndex;
+            const devices = [...(breakers[breakerIndex].devices || [])];
+            devices.push({ name: '', entity: '', sub_devices: [] });
+            breakers[breakerIndex] = { ...breakers[breakerIndex], devices };
+            this._updateConfig('circuit_breakers', breakers);
             this._render();
             break;
+            
           case 'delete-device':
-            this._deleteDevice(breakerIndex, deviceIndex);
+            const devs = [...(breakers[breakerIndex].devices || [])];
+            devs.splice(deviceIndex, 1);
+            breakers[breakerIndex] = { ...breakers[breakerIndex], devices: devs };
+            this._updateConfig('circuit_breakers', breakers);
+            this._render();
             break;
-          case 'back-to-breaker':
-            this._editingDeviceIndex = null;
+            
+          case 'add-subdevice':
+            const parentDevices = [...(breakers[breakerIndex].devices || [])];
+            const subDevices = [...(parentDevices[deviceIndex].sub_devices || [])];
+            subDevices.push({ name: '', entity: '' });
+            parentDevices[deviceIndex] = { ...parentDevices[deviceIndex], sub_devices: subDevices };
+            breakers[breakerIndex] = { ...breakers[breakerIndex], devices: parentDevices };
+            this._updateConfig('circuit_breakers', breakers);
+            this._render();
+            break;
+            
+          case 'delete-subdevice':
+            const pDevices = [...(breakers[breakerIndex].devices || [])];
+            const sDevices = [...(pDevices[deviceIndex].sub_devices || [])];
+            sDevices.splice(subIndex, 1);
+            pDevices[deviceIndex] = { ...pDevices[deviceIndex], sub_devices: sDevices };
+            breakers[breakerIndex] = { ...breakers[breakerIndex], devices: pDevices };
+            this._updateConfig('circuit_breakers', breakers);
             this._render();
             break;
         }
@@ -1670,493 +1619,34 @@ class HAPowercardEditor extends HTMLElement {
     });
   }
 
-  _updateConfigField(field, value) {
-    const parts = field.split('.');
-    let obj = this._config;
-    
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (!obj[parts[i]]) obj[parts[i]] = {};
-      obj = obj[parts[i]];
-    }
-    
-    obj[parts[parts.length - 1]] = value;
-    this._fireConfigChanged();
-    
-    // Re-render if toggling visibility
-    if (field.startsWith('show_')) {
-      this._render();
-    }
-  }
-
-  _updateBreakerField(index, field, value) {
-    if (!this._config.circuit_breakers) this._config.circuit_breakers = [];
-    if (!this._config.circuit_breakers[index]) this._config.circuit_breakers[index] = {};
-    this._config.circuit_breakers[index][field] = value;
-    this._fireConfigChanged();
-  }
-
-  _updateDeviceField(breakerIndex, deviceIndex, field, value) {
-    if (!this._config.circuit_breakers?.[breakerIndex]?.devices?.[deviceIndex]) return;
-    this._config.circuit_breakers[breakerIndex].devices[deviceIndex][field] = value;
-    this._fireConfigChanged();
-  }
-
-  _addBreaker() {
-    if (!this._config.circuit_breakers) this._config.circuit_breakers = [];
-    const newIndex = this._config.circuit_breakers.length;
-    this._config.circuit_breakers.push({
-      name: `CB-${newIndex + 1}`,
-      entity_power: '',
-      entity_energy: '',
-      entity_current: '',
-      devices: []
-    });
-    this._editingBreakerIndex = newIndex;
-    this._fireConfigChanged();
-    this._render();
-  }
-
-  _deleteBreaker(index) {
-    if (!this._config.circuit_breakers) return;
-    this._config.circuit_breakers.splice(index, 1);
-    this._fireConfigChanged();
-    this._render();
-  }
-
-  _addDevice(breakerIndex) {
-    if (!this._config.circuit_breakers?.[breakerIndex]) return;
-    if (!this._config.circuit_breakers[breakerIndex].devices) {
-      this._config.circuit_breakers[breakerIndex].devices = [];
-    }
-    const newIndex = this._config.circuit_breakers[breakerIndex].devices.length;
-    this._config.circuit_breakers[breakerIndex].devices.push({
-      name: '',
-      icon: 'mdi:power-plug',
-      entity: '',
-      entity_avg: '',
-      entity_daily: ''
-    });
-    this._editingDeviceIndex = newIndex;
-    this._fireConfigChanged();
-    this._render();
-  }
-
-  _deleteDevice(breakerIndex, deviceIndex) {
-    if (!this._config.circuit_breakers?.[breakerIndex]?.devices) return;
-    this._config.circuit_breakers[breakerIndex].devices.splice(deviceIndex, 1);
-    this._fireConfigChanged();
-    this._render();
-  }
-
-  _fireConfigChanged() {
-    const event = new CustomEvent('config-changed', {
-      detail: { config: { ...this._config } },
+  _updateConfig(key, value) {
+    this._config = { ...this._config, [key]: value };
+    this.dispatchEvent(new CustomEvent('config-changed', {
+      detail: { config: this._config },
       bubbles: true,
       composed: true
-    });
-    this.dispatchEvent(event);
-  }
-
-  _getEditorStyles() {
-    return `
-      :host {
-        --editor-bg: var(--card-background-color, #1e1e2e);
-        --editor-surface: var(--primary-background-color, #181825);
-        --editor-border: var(--divider-color, #313244);
-        --editor-text: var(--primary-text-color, #cdd6f4);
-        --editor-text-secondary: var(--secondary-text-color, #a6adc8);
-        --editor-accent: var(--primary-color, #f59e0b);
-        --editor-danger: #ef4444;
-      }
-
-      .editor-container {
-        font-family: var(--paper-font-body1_-_font-family, 'Roboto', sans-serif);
-      }
-
-      .tabs {
-        display: flex;
-        gap: 4px;
-        padding: 8px;
-        background: var(--editor-surface);
-        border-bottom: 1px solid var(--editor-border);
-        overflow-x: auto;
-      }
-
-      .tab {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 8px 12px;
-        background: transparent;
-        border: none;
-        border-radius: 8px;
-        color: var(--editor-text-secondary);
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 500;
-        white-space: nowrap;
-        transition: all 0.2s ease;
-      }
-
-      .tab:hover {
-        background: var(--editor-border);
-        color: var(--editor-text);
-      }
-
-      .tab.active {
-        background: var(--editor-accent);
-        color: #fff;
-      }
-
-      .tab svg {
-        flex-shrink: 0;
-      }
-
-      .tab-content {
-        padding: 16px;
-      }
-
-      .form-group {
-        margin-bottom: 16px;
-      }
-
-      .form-group label {
-        display: block;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--editor-text-secondary);
-        margin-bottom: 6px;
-      }
-
-      .form-input {
-        width: 100%;
-        padding: 10px 12px;
-        background: var(--editor-surface);
-        border: 1px solid var(--editor-border);
-        border-radius: 8px;
-        color: var(--editor-text);
-        font-size: 14px;
-        box-sizing: border-box;
-      }
-
-      .form-input:focus {
-        outline: none;
-        border-color: var(--editor-accent);
-      }
-
-      ha-entity-picker {
-        display: block;
-        width: 100%;
-      }
-
-      .color-picker {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-      }
-
-      .color-picker input[type="color"] {
-        width: 48px;
-        height: 40px;
-        padding: 2px;
-        border: 1px solid var(--editor-border);
-        border-radius: 8px;
-        cursor: pointer;
-        background: var(--editor-surface);
-      }
-
-      .color-picker .form-input {
-        flex: 1;
-      }
-
-      /* Toggle Switch */
-      .toggle-label {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--editor-text);
-      }
-
-      .toggle-label input {
-        display: none;
-      }
-
-      .toggle-switch {
-        width: 40px;
-        height: 22px;
-        background: var(--editor-border);
-        border-radius: 11px;
-        position: relative;
-        transition: background 0.2s ease;
-      }
-
-      .toggle-switch::after {
-        content: '';
-        position: absolute;
-        width: 18px;
-        height: 18px;
-        background: #fff;
-        border-radius: 50%;
-        top: 2px;
-        left: 2px;
-        transition: transform 0.2s ease;
-      }
-
-      .toggle-label input:checked + .toggle-switch {
-        background: var(--editor-accent);
-      }
-
-      .toggle-label input:checked + .toggle-switch::after {
-        transform: translateX(18px);
-      }
-
-      /* Sections */
-      .section {
-        background: var(--editor-surface);
-        border: 1px solid var(--editor-border);
-        border-radius: 12px;
-        margin-bottom: 12px;
-        overflow: hidden;
-      }
-
-      .section-header {
-        padding: 14px 16px;
-        border-bottom: 1px solid transparent;
-      }
-
-      .section-content {
-        padding: 16px;
-        border-top: 1px solid var(--editor-border);
-      }
-
-      .section-divider {
-        height: 1px;
-        background: var(--editor-border);
-        margin: 20px 0;
-      }
-
-      /* Lists */
-      .breakers-list,
-      .devices-list {
-        margin-bottom: 12px;
-      }
-
-      .breaker-item,
-      .device-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 14px;
-        background: var(--editor-surface);
-        border: 1px solid var(--editor-border);
-        border-radius: 10px;
-        margin-bottom: 8px;
-      }
-
-      .breaker-item-info,
-      .device-item-info {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .device-item-info ha-icon {
-        --mdc-icon-size: 20px;
-        color: var(--editor-text-secondary);
-      }
-
-      .breaker-item-name {
-        font-weight: 600;
-        color: var(--editor-text);
-      }
-
-      .breaker-item-meta {
-        font-size: 12px;
-        color: var(--editor-text-secondary);
-      }
-
-      .breaker-item-actions,
-      .device-item-actions {
-        display: flex;
-        gap: 4px;
-      }
-
-      .icon-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 32px;
-        height: 32px;
-        background: transparent;
-        border: none;
-        border-radius: 6px;
-        color: var(--editor-text-secondary);
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      .icon-btn:hover {
-        background: var(--editor-border);
-        color: var(--editor-text);
-      }
-
-      .icon-btn.danger:hover {
-        background: rgba(239, 68, 68, 0.15);
-        color: var(--editor-danger);
-      }
-
-      /* Buttons */
-      .add-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        width: 100%;
-        padding: 12px 16px;
-        background: var(--editor-accent);
-        border: none;
-        border-radius: 10px;
-        color: #fff;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      .add-btn:hover {
-        opacity: 0.9;
-        transform: translateY(-1px);
-      }
-
-      .add-btn.secondary {
-        background: var(--editor-surface);
-        border: 1px dashed var(--editor-border);
-        color: var(--editor-text-secondary);
-      }
-
-      .add-btn.secondary:hover {
-        border-color: var(--editor-accent);
-        color: var(--editor-accent);
-      }
-
-      .back-btn {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 8px 12px;
-        background: transparent;
-        border: 1px solid var(--editor-border);
-        border-radius: 8px;
-        color: var(--editor-text-secondary);
-        font-size: 13px;
-        cursor: pointer;
-        margin-bottom: 16px;
-        transition: all 0.2s ease;
-      }
-
-      .back-btn:hover {
-        border-color: var(--editor-accent);
-        color: var(--editor-accent);
-      }
-
-      .editor-subtitle {
-        margin: 0 0 16px;
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--editor-text);
-      }
-
-      .devices-header-title {
-        margin: 0 0 12px;
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--editor-text-secondary);
-      }
-
-      /* Icon Grid */
-      .icon-selector {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 8px;
-      }
-
-      .icon-input {
-        flex: 1;
-      }
-
-      .icon-preview {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 42px;
-        height: 42px;
-        background: var(--editor-surface);
-        border: 1px solid var(--editor-border);
-        border-radius: 8px;
-        color: var(--editor-text);
-      }
-
-      .icon-preview ha-icon {
-        --mdc-icon-size: 24px;
-      }
-
-      .icon-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
-        gap: 6px;
-        max-height: 180px;
-        overflow-y: auto;
-        padding: 8px;
-        background: var(--editor-surface);
-        border-radius: 8px;
-      }
-
-      .icon-option {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 40px;
-        height: 40px;
-        background: transparent;
-        border: 1px solid var(--editor-border);
-        border-radius: 8px;
-        color: var(--editor-text-secondary);
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      .icon-option:hover {
-        border-color: var(--editor-accent);
-        color: var(--editor-text);
-      }
-
-      .icon-option.selected {
-        border-color: var(--editor-accent);
-        background: rgba(245, 158, 11, 0.1);
-        color: var(--editor-accent);
-      }
-
-      .icon-option ha-icon {
-        --mdc-icon-size: 20px;
-      }
-    `;
+    }));
   }
 }
 
-// ============================================================================
-// REGISTER COMPONENTS
-// ============================================================================
+// Register components
 customElements.define('ha-powercard', HAPowercard);
 customElements.define('ha-powercard-editor', HAPowercardEditor);
 
+// Register with Home Assistant
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'ha-powercard',
-  name: 'HA Powercard',
-  description: 'A distribution board style power flow visualization card with animated power flows',
-  preview: true,
-  documentationURL: 'https://github.com/rellis-erigon/HA-Powercard'
+  name: 'HA-Powercard',
+  description: 'A distribution board style power monitoring card with animated flows',
+  preview: true
 });
+
+// Expose PowerHistoryTracker for external access
+window.HAPowercardHistory = PowerHistoryTracker;
+
+console.info(
+  '%c HA-POWERCARD %c v2.2.0 ',
+  'color: white; background: #f59e0b; font-weight: bold; padding: 2px 6px; border-radius: 4px 0 0 4px;',
+  'color: #f59e0b; background: #1c1c1c; font-weight: bold; padding: 2px 6px; border-radius: 0 4px 4px 0;'
+);

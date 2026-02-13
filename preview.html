@@ -3,1039 +3,333 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HA-Powercard v2.0 Preview</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>HA-Powercard v2.2.0 Preview</title>
   <style>
     * {
+      box-sizing: border-box;
       margin: 0;
       padding: 0;
-      box-sizing: border-box;
     }
-
+    
     body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+      font-family: 'Segoe UI', sans-serif;
+      background: #111;
+      color: #e0e0e0;
       min-height: 100vh;
-      padding: 40px 20px;
-      color: #cdd6f4;
+      padding: 24px;
     }
-
+    
     .preview-header {
       text-align: center;
-      margin-bottom: 40px;
+      margin-bottom: 32px;
     }
-
+    
     .preview-header h1 {
-      font-size: 36px;
-      font-weight: 700;
-      background: linear-gradient(135deg, #f59e0b, #fbbf24, #f59e0b);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: #f59e0b;
+      font-size: 2rem;
       margin-bottom: 8px;
     }
-
+    
+    .preview-header p {
+      color: #888;
+    }
+    
     .preview-header .version {
       display: inline-block;
-      padding: 4px 12px;
-      background: rgba(245, 158, 11, 0.15);
-      border: 1px solid rgba(245, 158, 11, 0.3);
-      border-radius: 20px;
-      font-size: 12px;
+      background: #f59e0b;
+      color: #000;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.8rem;
       font-weight: 600;
-      color: #f59e0b;
-      margin-bottom: 12px;
+      margin-left: 8px;
     }
-
-    .preview-header p {
-      color: #a6adc8;
-      font-size: 15px;
-      max-width: 500px;
+    
+    .preview-container {
+      max-width: 1200px;
       margin: 0 auto;
     }
-
+    
     .controls {
-      display: flex;
-      justify-content: center;
-      gap: 16px;
-      margin-bottom: 32px;
-      flex-wrap: wrap;
-    }
-
-    .control-group {
-      background: #1e1e2e;
-      padding: 16px 20px;
+      background: #1c1c1c;
       border-radius: 12px;
-      border: 1px solid #313244;
-      min-width: 160px;
+      padding: 20px;
+      margin-bottom: 24px;
     }
-
-    .control-group label {
-      display: block;
-      font-size: 11px;
-      color: #a6adc8;
-      margin-bottom: 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+    
+    .controls h3 {
+      margin-bottom: 16px;
+      color: #f59e0b;
     }
-
-    .control-group input[type="range"] {
+    
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+    }
+    
+    .control-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    
+    .control-item label {
+      font-size: 0.8rem;
+      color: #888;
+    }
+    
+    .control-item input[type="range"] {
       width: 100%;
       accent-color: #f59e0b;
-      margin-bottom: 8px;
     }
-
-    .control-group .value-display {
-      font-size: 20px;
-      font-weight: 700;
-      color: #f59e0b;
+    
+    .control-item .value {
+      font-size: 0.85rem;
+      color: #fff;
+      font-family: monospace;
     }
-
-    .card-container {
-      max-width: 900px;
-      margin: 0 auto;
+    
+    ha-powercard {
+      display: block;
     }
-
-    /* Card Styles */
-    .ha-card {
-      background: #1e1e2e;
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
-      border: 1px solid #313244;
-    }
-
-    .powercard-container {
-      position: relative;
+    
+    .features {
+      background: #1c1c1c;
+      border-radius: 12px;
       padding: 20px;
-      min-height: 500px;
+      margin-top: 24px;
     }
-
-    .flow-canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      z-index: 1;
-    }
-
-    /* Header */
-    .card-header {
-      position: relative;
-      z-index: 2;
-      margin-bottom: 16px;
-    }
-
-    .card-title {
-      margin: 0;
-      font-size: 13px;
-      font-weight: 600;
-      color: #a6adc8;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-    }
-
-    /* Power Sources */
-    .power-sources {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 20px;
-      position: relative;
-      z-index: 2;
-    }
-
-    .source-card {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      background: #181825;
-      border: 1px solid #313244;
-      border-radius: 12px;
-      padding: 16px 20px;
-      cursor: pointer;
-      transition: all 0.25s ease;
-      max-width: 220px;
-    }
-
-    .source-card:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-    }
-
-    .source-card.solar-card {
-      border-left: 4px solid #fbbf24;
-    }
-
-    .source-card.battery-card {
-      border-left: 4px solid #22c55e;
-    }
-
-    .source-card.grid-card {
-      border-left: 4px solid #6b7280;
-    }
-
-    .source-icon {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
-      position: relative;
-    }
-
-    .solar-card .source-icon {
-      background: rgba(251, 191, 36, 0.12);
-      color: #fbbf24;
-    }
-
-    .battery-card .source-icon {
-      background: rgba(34, 197, 94, 0.12);
-      color: #22c55e;
-    }
-
-    .grid-card .source-icon {
-      background: rgba(107, 114, 128, 0.12);
-      color: #6b7280;
-    }
-
-    .source-icon svg {
-      width: 26px;
-      height: 26px;
-    }
-
-    .battery-soc {
-      position: absolute;
-      bottom: -4px;
-      right: -4px;
-      font-size: 9px;
-      font-weight: 700;
-      background: #1e1e2e;
-      padding: 2px 5px;
-      border-radius: 4px;
-      color: #22c55e;
-      border: 1px solid #313244;
-    }
-
-    .source-info {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
-
-    .source-label {
-      font-size: 11px;
-      color: #a6adc8;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      font-weight: 500;
-    }
-
-    .source-value {
-      font-size: 20px;
-      font-weight: 700;
-      color: #cdd6f4;
-    }
-
-    /* Distribution Board */
-    .distribution-board {
-      background: #181825;
-      border: 1px solid #313244;
-      border-radius: 14px;
-      padding: 18px;
-      position: relative;
-      z-index: 2;
-    }
-
-    .busbar {
-      height: 6px;
-      background: linear-gradient(90deg, 
-        #f59e0b 0%, 
-        #fcd34d 50%,
-        #f59e0b 100%
-      );
-      border-radius: 3px;
-      margin-bottom: 18px;
-      box-shadow: 0 0 25px rgba(245, 158, 11, 0.4);
-      animation: busbar-pulse 3s ease-in-out infinite;
-    }
-
-    @keyframes busbar-pulse {
-      0%, 100% { box-shadow: 0 0 15px rgba(245, 158, 11, 0.3); }
-      50% { box-shadow: 0 0 35px rgba(245, 158, 11, 0.6); }
-    }
-
-    .breakers-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-      gap: 12px;
-    }
-
-    /* Breaker Cards */
-    .breaker-card {
-      background: #1e1e2e;
-      border: 1px solid #313244;
-      border-radius: 10px;
-      padding: 14px;
-      transition: all 0.25s ease;
-      cursor: pointer;
-    }
-
-    .breaker-card:hover {
-      border-color: rgba(245, 158, 11, 0.5);
-      transform: translateY(-2px);
-    }
-
-    .breaker-card.main-breaker {
-      border-color: #f59e0b;
-      background: linear-gradient(135deg, 
-        rgba(245, 158, 11, 0.08),
-        rgba(30, 30, 46, 1)
-      );
-    }
-
-    .breaker-card.expanded {
-      border-color: #f59e0b;
-      box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
-    }
-
-    .breaker-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    
+    .features h3 {
+      color: #f59e0b;
       margin-bottom: 12px;
     }
-
-    .breaker-name {
-      font-size: 12px;
-      font-weight: 700;
-      color: #f59e0b;
-    }
-
-    .breaker-status {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #313244;
-      transition: all 0.3s ease;
-    }
-
-    .breaker-status.active {
-      background: #22c55e;
-      box-shadow: 0 0 10px #22c55e;
-    }
-
-    .breaker-stats {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .stat-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .stat-label {
-      font-size: 10px;
-      color: #a6adc8;
-      font-weight: 500;
-    }
-
-    .stat-value {
-      font-size: 13px;
-      font-weight: 600;
-      color: #cdd6f4;
-    }
-
-    .stat-divider {
-      height: 1px;
-      background: #313244;
-    }
-
-    .expand-hint {
-      display: flex;
-      justify-content: center;
-      margin-top: 10px;
-      color: #a6adc8;
-      opacity: 0.5;
-      transition: all 0.2s ease;
-    }
-
-    .breaker-card:hover .expand-hint {
-      opacity: 1;
-      color: #f59e0b;
-    }
-
-    /* Devices Panel */
-    .devices-container {
-      margin-top: 16px;
-      position: relative;
-      z-index: 2;
-    }
-
-    .devices-panel {
-      background: #181825;
-      border: 1px solid #313244;
-      border-radius: 14px;
-      padding: 18px;
-      animation: slideDown 0.3s ease;
-    }
-
-    @keyframes slideDown {
-      from { 
-        opacity: 0; 
-        transform: translateY(-10px); 
-      }
-      to { 
-        opacity: 1; 
-        transform: translateY(0); 
-      }
-    }
-
-    .devices-header {
-      margin-bottom: 14px;
-    }
-
-    .devices-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: #f59e0b;
-    }
-
-    .devices-table {
-      font-size: 13px;
-    }
-
-    .table-header {
-      display: grid;
-      grid-template-columns: 2fr 1fr 1fr 1fr;
-      gap: 16px;
-      padding: 10px 14px;
-      background: #1e1e2e;
-      border-radius: 8px;
-      margin-bottom: 8px;
-      font-weight: 600;
-      color: #a6adc8;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .table-row {
-      display: grid;
-      grid-template-columns: 2fr 1fr 1fr 1fr;
-      gap: 16px;
-      padding: 12px 14px;
-      border-radius: 8px;
-      transition: background 0.2s ease;
-      cursor: pointer;
-    }
-
-    .table-row:hover {
-      background: #1e1e2e;
-    }
-
-    .device-name {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: #cdd6f4;
-      font-weight: 500;
-    }
-
-    .device-icon {
-      width: 22px;
-      height: 22px;
-      color: #a6adc8;
-    }
-
-    .device-avg,
-    .device-power,
-    .device-daily {
-      color: #cdd6f4;
-      text-align: right;
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-    }
-
-    /* Feature Cards */
-    .features {
+    
+    .features ul {
+      list-style: none;
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 16px;
-      margin-top: 32px;
-    }
-
-    .feature-card {
-      background: #1e1e2e;
-      border: 1px solid #313244;
-      border-radius: 12px;
-      padding: 20px;
-    }
-
-    .feature-card h3 {
-      font-size: 14px;
-      font-weight: 600;
-      color: #f59e0b;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
       gap: 8px;
     }
-
-    .feature-card p {
-      font-size: 13px;
-      color: #a6adc8;
-      line-height: 1.5;
+    
+    .features li {
+      padding: 4px 0;
+      color: #ccc;
     }
-
-    .feature-icon {
-      width: 20px;
-      height: 20px;
+    
+    .features li::before {
+      content: '✓ ';
+      color: #22c55e;
     }
   </style>
 </head>
 <body>
   <div class="preview-header">
-    <div class="version">v2.0.0</div>
-    <h1>⚡ HA-Powercard</h1>
-    <p>Distribution Board Power Flow Visualization with Full GUI Editor</p>
+    <h1>⚡ HA-Powercard <span class="version">v2.2.0</span></h1>
+    <p>Interactive preview - adjust sliders to simulate power values</p>
   </div>
-
-  <div class="controls">
-    <div class="control-group">
-      <label>Solar Power</label>
-      <input type="range" id="solarPower" min="0" max="6000" value="3200">
-      <div class="value-display"><span id="solarValue">3200</span> W</div>
-    </div>
-    <div class="control-group">
-      <label>Battery</label>
-      <input type="range" id="batteryPower" min="-3000" max="3000" value="850">
-      <div class="value-display"><span id="batteryValue">850</span> W</div>
-    </div>
-    <div class="control-group">
-      <label>Grid Power</label>
-      <input type="range" id="gridPower" min="0" max="5000" value="1400">
-      <div class="value-display"><span id="gridValue">1400</span> W</div>
-    </div>
-  </div>
-
-  <div class="card-container">
-    <div class="ha-card">
-      <div class="powercard-container">
-        <canvas class="flow-canvas" id="flowCanvas"></canvas>
-        
-        <div class="card-header">
-          <h2 class="card-title">Distribution Board</h2>
+  
+  <div class="preview-container">
+    <div class="controls">
+      <h3>Simulate Power Values</h3>
+      <div class="control-grid">
+        <div class="control-item">
+          <label>Solar Power</label>
+          <input type="range" id="solar-slider" min="0" max="10000" value="3500">
+          <span class="value" id="solar-value">3500 W</span>
         </div>
-
-        <div class="power-sources">
-          <div class="source-card solar-card">
-            <div class="source-icon">
-              <svg viewBox="0 0 24 24">
-                <path fill="currentColor" d="M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,2L14.39,5.42C13.65,5.15 12.84,5 12,5C11.16,5 10.35,5.15 9.61,5.42L12,2M3.34,7L7.5,6.65C6.9,7.16 6.36,7.78 5.94,8.5C5.5,9.24 5.25,10 5.11,10.79L3.34,7M3.36,17L5.12,13.23C5.26,14 5.53,14.78 5.95,15.5C6.37,16.24 6.91,16.86 7.5,17.37L3.36,17M20.65,7L18.88,10.79C18.74,10 18.47,9.23 18.05,8.5C17.63,7.78 17.1,7.15 16.5,6.64L20.65,7M20.64,17L16.5,17.36C17.09,16.85 17.62,16.22 18.04,15.5C18.46,14.77 18.73,14 18.87,13.21L20.64,17M12,22L9.59,18.56C10.33,18.83 11.14,19 12,19C12.82,19 13.63,18.83 14.37,18.56L12,22Z"/>
-              </svg>
-            </div>
-            <div class="source-info">
-              <span class="source-label">Solar</span>
-              <span class="source-value" id="solarDisplay">3.2 kW</span>
-            </div>
-          </div>
-
-          <div class="source-card battery-card">
-            <div class="source-icon">
-              <svg viewBox="0 0 24 24">
-                <path fill="currentColor" d="M16,20H8V6H16M16.67,4H15V2H9V4H7.33A1.33,1.33 0 0,0 6,5.33V20.67C6,21.4 6.6,22 7.33,22H16.67A1.33,1.33 0 0,0 18,20.67V5.33C18,4.6 17.4,4 16.67,4Z"/>
-              </svg>
-              <span class="battery-soc">72%</span>
-            </div>
-            <div class="source-info">
-              <span class="source-label">Battery</span>
-              <span class="source-value" id="batteryDisplay">850 W</span>
-            </div>
-          </div>
-          
-          <div class="source-card grid-card">
-            <div class="source-icon">
-              <svg viewBox="0 0 24 24">
-                <path fill="currentColor" d="M8.28,5.45L6.5,4.55L7.76,2H16.24L17.5,4.55L15.72,5.45L15,4H9L8.28,5.45M18.62,8H14.09L13.3,5H10.7L9.91,8H5.38L4.1,10.55L5.89,11.44L6.62,10H17.38L18.1,11.44L19.89,10.55L18.62,8M17.77,22H15.7L15.46,21.21L12,14.82L8.54,21.21L8.3,22H6.23L9.12,15H5.38L4.1,12.55L5.89,11.64L6.62,13H17.38L18.1,11.64L19.89,12.55L18.62,15H14.88L17.77,22Z"/>
-              </svg>
-            </div>
-            <div class="source-info">
-              <span class="source-label">Grid</span>
-              <span class="source-value" id="gridDisplay">1.4 kW</span>
-            </div>
-          </div>
+        <div class="control-item">
+          <label>Grid Power</label>
+          <input type="range" id="grid-slider" min="0" max="15000" value="2100">
+          <span class="value" id="grid-value">2100 W</span>
         </div>
-
-        <div class="distribution-board">
-          <div class="busbar"></div>
-          
-          <div class="breakers-grid">
-            <div class="breaker-card main-breaker">
-              <div class="breaker-header">
-                <span class="breaker-name">Main CB</span>
-                <span class="breaker-status active"></span>
-              </div>
-              <div class="breaker-stats">
-                <div class="stat-item">
-                  <span class="stat-label">Daily</span>
-                  <span class="stat-value">32.4 kWh</span>
-                </div>
-                <div class="stat-divider"></div>
-                <div class="stat-item">
-                  <span class="stat-label">Current</span>
-                  <span class="stat-value">22.7 A</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">Power</span>
-                  <span class="stat-value" id="mainDisplay">5.45 kW</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="breaker-card" id="cb1">
-              <div class="breaker-header">
-                <span class="breaker-name">CB-1 Kitchen</span>
-                <span class="breaker-status active"></span>
-              </div>
-              <div class="breaker-stats">
-                <div class="stat-item">
-                  <span class="stat-label">Daily</span>
-                  <span class="stat-value">8.7 kWh</span>
-                </div>
-                <div class="stat-divider"></div>
-                <div class="stat-item">
-                  <span class="stat-label">Current</span>
-                  <span class="stat-value">5.2 A</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">Power</span>
-                  <span class="stat-value">1.25 kW</span>
-                </div>
-              </div>
-              <div class="expand-hint">
-                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg>
-              </div>
-            </div>
-
-            <div class="breaker-card">
-              <div class="breaker-header">
-                <span class="breaker-name">CB-2 Living</span>
-                <span class="breaker-status active"></span>
-              </div>
-              <div class="breaker-stats">
-                <div class="stat-item">
-                  <span class="stat-label">Daily</span>
-                  <span class="stat-value">5.3 kWh</span>
-                </div>
-                <div class="stat-divider"></div>
-                <div class="stat-item">
-                  <span class="stat-label">Current</span>
-                  <span class="stat-value">3.1 A</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">Power</span>
-                  <span class="stat-value">740 W</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="breaker-card">
-              <div class="breaker-header">
-                <span class="breaker-name">CB-3 Bedroom</span>
-                <span class="breaker-status"></span>
-              </div>
-              <div class="breaker-stats">
-                <div class="stat-item">
-                  <span class="stat-label">Daily</span>
-                  <span class="stat-value">2.1 kWh</span>
-                </div>
-                <div class="stat-divider"></div>
-                <div class="stat-item">
-                  <span class="stat-label">Current</span>
-                  <span class="stat-value">0.0 A</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">Power</span>
-                  <span class="stat-value">0 W</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="breaker-card">
-              <div class="breaker-header">
-                <span class="breaker-name">CB-4 HVAC</span>
-                <span class="breaker-status active"></span>
-              </div>
-              <div class="breaker-stats">
-                <div class="stat-item">
-                  <span class="stat-label">Daily</span>
-                  <span class="stat-value">12.8 kWh</span>
-                </div>
-                <div class="stat-divider"></div>
-                <div class="stat-item">
-                  <span class="stat-label">Current</span>
-                  <span class="stat-value">9.8 A</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">Power</span>
-                  <span class="stat-value">2.35 kW</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="breaker-card">
-              <div class="breaker-header">
-                <span class="breaker-name">CB-5 Garage</span>
-                <span class="breaker-status active"></span>
-              </div>
-              <div class="breaker-stats">
-                <div class="stat-item">
-                  <span class="stat-label">Daily</span>
-                  <span class="stat-value">3.5 kWh</span>
-                </div>
-                <div class="stat-divider"></div>
-                <div class="stat-item">
-                  <span class="stat-label">Current</span>
-                  <span class="stat-value">4.7 A</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">Power</span>
-                  <span class="stat-value">1.12 kW</span>
-                </div>
-              </div>
-              <div class="expand-hint">
-                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg>
-              </div>
-            </div>
-          </div>
+        <div class="control-item">
+          <label>Main Breaker</label>
+          <input type="range" id="main-slider" min="0" max="20000" value="5600">
+          <span class="value" id="main-value">5600 W</span>
         </div>
-
-        <div class="devices-container">
-          <div class="devices-panel">
-            <div class="devices-header">
-              <span class="devices-title">CB-1 Kitchen — Connected Devices</span>
-            </div>
-            <div class="devices-table">
-              <div class="table-header">
-                <span>Device</span>
-                <span>Avg/Hr</span>
-                <span>Power</span>
-                <span>Daily</span>
-              </div>
-              <div class="table-row">
-                <span class="device-name">
-                  <svg class="device-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M9,21V22H7V21A2,2 0 0,1 5,19V4A2,2 0 0,1 7,2H17A2,2 0 0,1 19,4V19A2,2 0 0,1 17,21V22H15V21H9M7,4V9H17V4H7M7,19H17V11H7V19M8,12H10V15H8V12Z"/></svg>
-                  Refrigerator
-                </span>
-                <span class="device-avg">48.5 Wh</span>
-                <span class="device-power">125 W</span>
-                <span class="device-daily">1.16 kWh</span>
-              </div>
-              <div class="table-row">
-                <span class="device-name">
-                  <svg class="device-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M6,4H10V6H14V4H18V6H19A2,2 0 0,1 21,8V18A2,2 0 0,1 19,20H5A2,2 0 0,1 3,18V8A2,2 0 0,1 5,6H6V4M5,12V18H19V12H5M5,8V10H19V8H5Z"/></svg>
-                  Oven
-                </span>
-                <span class="device-avg">92.3 Wh</span>
-                <span class="device-power">920 W</span>
-                <span class="device-daily">2.21 kWh</span>
-              </div>
-              <div class="table-row">
-                <span class="device-name">
-                  <svg class="device-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M8,7H16A1,1 0 0,1 17,8V9H20A1,1 0 0,1 21,10V12A1,1 0 0,1 20,13H17V14A1,1 0 0,1 16,15H8A1,1 0 0,1 7,14V8A1,1 0 0,1 8,7M9,9V13H15V9H9M4,7A1,1 0 0,1 5,8V14A1,1 0 0,1 4,15A1,1 0 0,1 3,14V8A1,1 0 0,1 4,7Z"/></svg>
-                  Microwave
-                </span>
-                <span class="device-avg">28.7 Wh</span>
-                <span class="device-power">205 W</span>
-                <span class="device-daily">0.69 kWh</span>
-              </div>
-            </div>
-          </div>
+        <div class="control-item">
+          <label>Kitchen CB</label>
+          <input type="range" id="cb1-slider" min="0" max="5000" value="1850">
+          <span class="value" id="cb1-value">1850 W</span>
+        </div>
+        <div class="control-item">
+          <label>Living Room CB</label>
+          <input type="range" id="cb2-slider" min="0" max="3000" value="420">
+          <span class="value" id="cb2-value">420 W</span>
+        </div>
+        <div class="control-item">
+          <label>Bedrooms CB</label>
+          <input type="range" id="cb3-slider" min="0" max="2000" value="180">
+          <span class="value" id="cb3-value">180 W</span>
         </div>
       </div>
     </div>
-
+    
+    <ha-powercard id="powercard"></ha-powercard>
+    
     <div class="features">
-      <div class="feature-card">
-        <h3>
-          <svg class="feature-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
-          Full GUI Editor
-        </h3>
-        <p>Configure everything through the visual editor — no YAML required. Add breakers, devices, and customize all settings.</p>
-      </div>
-      <div class="feature-card">
-        <h3>
-          <svg class="feature-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M11.5,20L16.36,10.27H13V4L8,13.73H11.5V20Z"/></svg>
-          Animated Power Flow
-        </h3>
-        <p>Real-time particle animations show power flowing from solar, battery, and grid to your distribution board.</p>
-      </div>
-      <div class="feature-card">
-        <h3>
-          <svg class="feature-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M3,3H21V21H3V3M5,5V19H19V5H5Z"/></svg>
-          Device Tables
-        </h3>
-        <p>Click any circuit breaker to expand and see all connected devices with their power consumption and daily totals.</p>
-      </div>
+      <h3>v2.2.0 Features</h3>
+      <ul>
+        <li>Energy values: Wh → kWh conversion</li>
+        <li>Monitored vs Unmonitored totals</li>
+        <li>Sub-device support (see Kitchen)</li>
+        <li>Auto-scaling responsive layout</li>
+        <li>Properly aligned device tables</li>
+        <li>Hourly average tracking</li>
+        <li>System-wide averages API</li>
+        <li>Click breakers to collapse/expand</li>
+      </ul>
     </div>
   </div>
 
+  <script src="dist/ha-powercard.js"></script>
   <script>
-    // Animation variables
-    let particles = [];
-    let solarPower = 3200;
-    let batteryPower = 850;
-    let gridPower = 1400;
-
-    // Canvas setup
-    const canvas = document.getElementById('flowCanvas');
-    const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-
-    function resizeCanvas() {
-      const container = canvas.parentElement;
-      const rect = container.getBoundingClientRect();
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      canvas.style.width = rect.width + 'px';
-      canvas.style.height = rect.height + 'px';
-      ctx.scale(dpr, dpr);
-    }
-
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-
-    // Format value helper
-    function formatValue(value) {
-      if (Math.abs(value) >= 1000) {
-        return (value / 1000).toFixed(1) + ' kW';
-      }
-      return value + ' W';
-    }
-
+    // Simulated Home Assistant state
+    const mockStates = {
+      'sensor.solar_power': { state: '3500', attributes: { unit_of_measurement: 'W' } },
+      'sensor.grid_power': { state: '2100', attributes: { unit_of_measurement: 'W' } },
+      'sensor.main_power': { state: '5600', attributes: { unit_of_measurement: 'W' } },
+      'sensor.main_energy': { state: '24500', attributes: { unit_of_measurement: 'Wh' } },
+      'sensor.main_current': { state: '24.3', attributes: { unit_of_measurement: 'A' } },
+      'sensor.kitchen_power': { state: '1850', attributes: { unit_of_measurement: 'W' } },
+      'sensor.kitchen_energy': { state: '8200', attributes: { unit_of_measurement: 'Wh' } },
+      'sensor.kitchen_current': { state: '8.0', attributes: { unit_of_measurement: 'A' } },
+      'sensor.living_power': { state: '420', attributes: { unit_of_measurement: 'W' } },
+      'sensor.living_energy': { state: '3100', attributes: { unit_of_measurement: 'Wh' } },
+      'sensor.living_current': { state: '1.8', attributes: { unit_of_measurement: 'A' } },
+      'sensor.bedroom_power': { state: '180', attributes: { unit_of_measurement: 'W' } },
+      'sensor.bedroom_energy': { state: '1200', attributes: { unit_of_measurement: 'Wh' } },
+      'sensor.bedroom_current': { state: '0.8', attributes: { unit_of_measurement: 'A' } },
+      'sensor.fridge_power': { state: '120', attributes: { unit_of_measurement: 'W' } },
+      'sensor.oven_power': { state: '1200', attributes: { unit_of_measurement: 'W' } },
+      'sensor.oven_fan_power': { state: '45', attributes: { unit_of_measurement: 'W' } },
+      'sensor.oven_light_power': { state: '15', attributes: { unit_of_measurement: 'W' } },
+      'sensor.microwave_power': { state: '0', attributes: { unit_of_measurement: 'W' } },
+      'sensor.tv_power': { state: '150', attributes: { unit_of_measurement: 'W' } },
+      'sensor.soundbar_power': { state: '45', attributes: { unit_of_measurement: 'W' } },
+      'sensor.subwoofer_power': { state: '30', attributes: { unit_of_measurement: 'W' } },
+      'sensor.lamp_power': { state: '60', attributes: { unit_of_measurement: 'W' } },
+      'sensor.hvac_power': { state: '2400', attributes: { unit_of_measurement: 'W' } },
+      'sensor.hvac_energy': { state: '15600', attributes: { unit_of_measurement: 'Wh' } },
+      'sensor.hvac_current': { state: '10.4', attributes: { unit_of_measurement: 'A' } },
+      'sensor.garage_power': { state: '750', attributes: { unit_of_measurement: 'W' } },
+      'sensor.garage_energy': { state: '4200', attributes: { unit_of_measurement: 'Wh' } },
+      'sensor.garage_current': { state: '3.3', attributes: { unit_of_measurement: 'A' } }
+    };
+    
+    const mockHass = {
+      states: mockStates
+    };
+    
+    const config = {
+      title: 'Distribution Board',
+      show_solar: true,
+      show_grid: true,
+      show_battery: false,
+      accent_color: '#f59e0b',
+      solar: {
+        entity: 'sensor.solar_power',
+        name: 'Solar'
+      },
+      grid: {
+        entity: 'sensor.grid_power',
+        name: 'Grid'
+      },
+      main_breaker: {
+        name: 'Main CB',
+        entity_power: 'sensor.main_power',
+        entity_energy: 'sensor.main_energy',
+        entity_current: 'sensor.main_current'
+      },
+      circuit_breakers: [
+        {
+          name: 'Kitchen',
+          entity_power: 'sensor.kitchen_power',
+          entity_energy: 'sensor.kitchen_energy',
+          entity_current: 'sensor.kitchen_current',
+          devices: [
+            { name: 'Refrigerator', entity: 'sensor.fridge_power' },
+            { 
+              name: 'Oven', 
+              entity: 'sensor.oven_power',
+              sub_devices: [
+                { name: 'Oven Fan', entity: 'sensor.oven_fan_power' },
+                { name: 'Oven Light', entity: 'sensor.oven_light_power' }
+              ]
+            },
+            { name: 'Microwave', entity: 'sensor.microwave_power' }
+          ]
+        },
+        {
+          name: 'Living Room',
+          entity_power: 'sensor.living_power',
+          entity_energy: 'sensor.living_energy',
+          entity_current: 'sensor.living_current',
+          devices: [
+            { name: 'TV', entity: 'sensor.tv_power' },
+            { 
+              name: 'Soundbar', 
+              entity: 'sensor.soundbar_power',
+              sub_devices: [
+                { name: 'Subwoofer', entity: 'sensor.subwoofer_power' }
+              ]
+            }
+          ]
+        },
+        {
+          name: 'Bedrooms',
+          entity_power: 'sensor.bedroom_power',
+          entity_energy: 'sensor.bedroom_energy',
+          entity_current: 'sensor.bedroom_current',
+          devices: [
+            { name: 'Lamp', entity: 'sensor.lamp_power' }
+          ]
+        },
+        {
+          name: 'HVAC',
+          entity_power: 'sensor.hvac_power',
+          entity_energy: 'sensor.hvac_energy',
+          entity_current: 'sensor.hvac_current'
+        },
+        {
+          name: 'Garage',
+          entity_power: 'sensor.garage_power',
+          entity_energy: 'sensor.garage_energy',
+          entity_current: 'sensor.garage_current'
+        }
+      ]
+    };
+    
+    const card = document.getElementById('powercard');
+    card.setConfig(config);
+    card.hass = mockHass;
+    
     // Slider controls
-    document.getElementById('solarPower').addEventListener('input', (e) => {
-      solarPower = parseInt(e.target.value);
-      document.getElementById('solarValue').textContent = solarPower;
-      document.getElementById('solarDisplay').textContent = formatValue(solarPower);
-      updateMainPower();
-    });
-
-    document.getElementById('batteryPower').addEventListener('input', (e) => {
-      batteryPower = parseInt(e.target.value);
-      document.getElementById('batteryValue').textContent = batteryPower;
-      document.getElementById('batteryDisplay').textContent = formatValue(Math.abs(batteryPower));
-      updateMainPower();
-    });
-
-    document.getElementById('gridPower').addEventListener('input', (e) => {
-      gridPower = parseInt(e.target.value);
-      document.getElementById('gridValue').textContent = gridPower;
-      document.getElementById('gridDisplay').textContent = formatValue(gridPower);
-      updateMainPower();
-    });
-
-    function updateMainPower() {
-      const total = solarPower + Math.max(0, batteryPower) + gridPower;
-      document.getElementById('mainDisplay').textContent = formatValue(total);
-    }
-
-    // Path helpers
-    function getPointOnPath(path, progress) {
-      if (path.length < 2) return path[0] || { x: 0, y: 0 };
-
-      let totalLength = 0;
-      const segments = [];
+    function updateSlider(sliderId, entityId, valueId) {
+      const slider = document.getElementById(sliderId);
+      const valueEl = document.getElementById(valueId);
       
-      for (let i = 1; i < path.length; i++) {
-        const dx = path[i].x - path[i-1].x;
-        const dy = path[i].y - path[i-1].y;
-        const length = Math.sqrt(dx * dx + dy * dy);
-        segments.push({ start: path[i-1], end: path[i], length });
-        totalLength += length;
-      }
-
-      const targetDistance = progress * totalLength;
-      let currentDistance = 0;
-
-      for (const segment of segments) {
-        if (currentDistance + segment.length >= targetDistance) {
-          const segmentProgress = (targetDistance - currentDistance) / segment.length;
-          return {
-            x: segment.start.x + (segment.end.x - segment.start.x) * segmentProgress,
-            y: segment.start.y + (segment.end.y - segment.start.y) * segmentProgress
-          };
-        }
-        currentDistance += segment.length;
-      }
-
-      return path[path.length - 1];
-    }
-
-    // Animation loop
-    function animate() {
-      requestAnimationFrame(animate);
-      
-      const container = canvas.parentElement;
-      const rect = container.getBoundingClientRect();
-      const width = rect.width;
-      const height = rect.height;
-      
-      ctx.clearRect(0, 0, width, height);
-
-      // Key positions
-      const busbarY = height * 0.42;
-      const sourceY = height * 0.10;
-
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      // Draw glow line helper
-      function drawGlowLine(path, color) {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 4;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 15;
-        
-        ctx.beginPath();
-        ctx.moveTo(path[0].x, path[0].y);
-        for (let i = 1; i < path.length; i++) {
-          ctx.lineTo(path[i].x, path[i].y);
-        }
-        ctx.stroke();
-        
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      }
-
-      // Solar line
-      if (solarPower > 0) {
-        const solarPath = [
-          { x: width * 0.14, y: sourceY + 75 },
-          { x: width * 0.14, y: busbarY },
-          { x: width * 0.10, y: busbarY }
-        ];
-        drawGlowLine(solarPath, '#fbbf24');
-        addParticles('solar', solarPath, solarPower, '#fbbf24');
-      }
-
-      // Battery line
-      if (batteryPower > 0) {
-        const batteryPath = [
-          { x: width * 0.50, y: sourceY + 75 },
-          { x: width * 0.50, y: busbarY }
-        ];
-        drawGlowLine(batteryPath, '#22c55e');
-        addParticles('battery', batteryPath, batteryPower, '#22c55e');
-      }
-
-      // Grid line
-      if (gridPower > 0) {
-        const gridPath = [
-          { x: width * 0.86, y: sourceY + 75 },
-          { x: width * 0.86, y: busbarY },
-          { x: width * 0.90, y: busbarY }
-        ];
-        drawGlowLine(gridPath, '#6b7280');
-        addParticles('grid', gridPath, gridPower, '#9ca3af');
-      }
-
-      // Main busbar
-      const gradient = ctx.createLinearGradient(width * 0.08, 0, width * 0.92, 0);
-      gradient.addColorStop(0, '#f59e0b');
-      gradient.addColorStop(0.5, '#fcd34d');
-      gradient.addColorStop(1, '#f59e0b');
-      
-      ctx.shadowColor = '#f59e0b';
-      ctx.shadowBlur = 25;
-      ctx.strokeStyle = gradient;
-      ctx.lineWidth = 6;
-      
-      ctx.beginPath();
-      ctx.moveTo(width * 0.08, busbarY);
-      ctx.lineTo(width * 0.92, busbarY);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      // Vertical drops
-      ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 3;
-      ctx.shadowColor = '#f59e0b';
-      ctx.shadowBlur = 10;
-
-      const breakerCount = 6;
-      const startX = width * 0.10;
-      const endX = width * 0.90;
-      const spacing = (endX - startX) / breakerCount;
-
-      for (let i = 0; i < breakerCount; i++) {
-        const x = startX + (i * spacing) + spacing / 2;
-        ctx.beginPath();
-        ctx.moveTo(x, busbarY);
-        ctx.lineTo(x, busbarY + 22);
-        ctx.stroke();
-      }
-      
-      ctx.shadowBlur = 0;
-
-      // Update and draw particles
-      particles = particles.filter(particle => {
-        particle.progress += particle.speed;
-        if (particle.progress >= 1) return false;
-
-        const pos = getPointOnPath(particle.path, particle.progress);
-        
-        // Glow
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, particle.size * 2.2, 0, Math.PI * 2);
-        ctx.fillStyle = particle.color;
-        ctx.globalAlpha = 0.25;
-        ctx.fill();
-        
-        // Core
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, particle.size, 0, Math.PI * 2);
-        ctx.fillStyle = '#fff';
-        ctx.globalAlpha = 0.95;
-        ctx.fill();
-        
-        ctx.globalAlpha = 1;
-        return true;
+      slider.addEventListener('input', () => {
+        const value = slider.value;
+        valueEl.textContent = value + ' W';
+        mockStates[entityId].state = value;
+        card.hass = { ...mockHass };
       });
     }
-
-    function addParticles(source, path, power, color) {
-      if (power <= 0) return;
-      
-      const speed = Math.max(0.008, 0.04 - (power / 8000) * 0.03);
-      const existing = particles.filter(p => p.source === source);
-      const maxParticles = Math.min(14, Math.ceil(power / 350));
-      
-      if (existing.length < maxParticles && Math.random() < 0.14) {
-        particles.push({
-          source,
-          path: [...path],
-          progress: 0,
-          speed: speed * (0.7 + Math.random() * 0.6),
-          size: 4.5 + Math.random() * 3,
-          color
-        });
-      }
-    }
-
-    // Start animation
-    animate();
+    
+    updateSlider('solar-slider', 'sensor.solar_power', 'solar-value');
+    updateSlider('grid-slider', 'sensor.grid_power', 'grid-value');
+    updateSlider('main-slider', 'sensor.main_power', 'main-value');
+    updateSlider('cb1-slider', 'sensor.kitchen_power', 'cb1-value');
+    updateSlider('cb2-slider', 'sensor.living_power', 'cb2-value');
+    updateSlider('cb3-slider', 'sensor.bedroom_power', 'cb3-value');
+    
+    // Log averages when available
+    window.addEventListener('ha-powercard-averages', (e) => {
+      console.log('HA-Powercard Averages:', e.detail);
+    });
   </script>
 </body>
 </html>

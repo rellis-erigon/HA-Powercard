@@ -1,27 +1,19 @@
 {
   "name": "ha-powercard",
-  "version": "2.0.0",
-  "description": "A distribution board style power flow visualization card for Home Assistant with full GUI editor",
+  "version": "2.2.0",
+  "description": "A Home Assistant custom card for visualizing electrical distribution board power flows",
   "main": "dist/ha-powercard.js",
-  "scripts": {
-    "build": "echo 'No build step required - vanilla JS'",
-    "lint": "eslint src/",
-    "release": "npm version patch && git push --follow-tags"
-  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rellis-erigon/HA-Powercard.git"
+    "url": "https://github.com/rellis-erigon/HA-Powercard.git"
   },
   "keywords": [
     "home-assistant",
     "lovelace",
     "custom-card",
-    "power-flow",
+    "power-monitoring",
     "distribution-board",
-    "energy-monitoring",
-    "solar",
-    "battery",
-    "gui-editor"
+    "energy"
   ],
   "author": "rellis-erigon",
   "license": "MIT",

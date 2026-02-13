@@ -1,6 +1,5 @@
 {
-  "name": "HA Powercard",
-  "render_readme": true,
+  "name": "HA-Powercard",
   "filename": "ha-powercard.js",
-  "content_in_root": false
+  "render_readme": true
 }
