@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.1] - 2026-02-13
+
+### Changed
+- **Device Panel Location**: Device panels now appear below all breaker cards instead of inline after each breaker
+- Cleaner visual separation between breaker grid and device details
+
 ## [2.2.0] - 2026-02-13
 
 ### Fixed

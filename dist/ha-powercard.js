@@ -1,7 +1,10 @@
 /**
- * HA-Powercard v2.2.0
+ * HA-Powercard v2.2.1
  * A Home Assistant custom card for visualizing electrical distribution board power flows
  * https://github.com/rellis-erigon/HA-Powercard
+ * 
+ * v2.2.1 Changes:
+ * - Device panels now appear below all breaker cards (not inline)
  * 
  * v2.2.0 Changes:
  * - Fixed energy display: Wh properly converted to kWh (÷1000, 0 decimal places)
@@ -612,13 +615,18 @@ class HAPowercard extends HTMLElement {
         font-weight: 600;
       }
       
-      /* Device Panel - Full Width */
+      /* Device Panels Container - Below Breakers */
+      .devices-container {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-top: 16px;
+      }
+      
       .devices-panel {
-        grid-column: 1 / -1;
         background: rgba(0,0,0,0.3);
         border-radius: 8px;
         padding: 12px;
-        margin-top: 8px;
         overflow: hidden;
         transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
       }
@@ -804,7 +812,6 @@ class HAPowercard extends HTMLElement {
     const current = this._getEntityState(cb.entity_current);
     const hasDevices = cb.devices?.length > 0;
     const breakerId = `cb-${index}`;
-    const isExpanded = this._expandedBreakers.has(breakerId);
     
     return `
       <div class="breaker-card ${hasDevices ? 'has-devices' : ''}" 
@@ -831,7 +838,6 @@ class HAPowercard extends HTMLElement {
           </div>
         </div>
       </div>
-      ${hasDevices ? this._renderDevicesPanel(cb, breakerId, isExpanded) : ''}
     `;
   }
 
@@ -927,6 +933,16 @@ class HAPowercard extends HTMLElement {
     return breakers.map((cb, index) => this._renderCircuitBreaker(cb, index)).join('');
   }
 
+  _renderAllDevicePanels() {
+    const breakers = this._config.circuit_breakers || [];
+    return breakers.map((cb, index) => {
+      if (!cb.devices?.length) return '';
+      const breakerId = `cb-${index}`;
+      const isExpanded = this._expandedBreakers.has(breakerId);
+      return this._renderDevicesPanel(cb, breakerId, isExpanded);
+    }).join('');
+  }
+
   _renderPowerSources() {
     const sources = [];
     
@@ -984,6 +1000,10 @@ class HAPowercard extends HTMLElement {
         
         <div class="breakers-grid">
           ${this._renderCircuitBreakers()}
+        </div>
+        
+        <div class="devices-container">
+          ${this._renderAllDevicePanels()}
         </div>
       </div>
     `;
@@ -1646,7 +1666,7 @@ window.customCards.push({
 window.HAPowercardHistory = PowerHistoryTracker;
 
 console.info(
-  '%c HA-POWERCARD %c v2.2.0 ',
+  '%c HA-POWERCARD %c v2.2.1 ',
   'color: white; background: #f59e0b; font-weight: bold; padding: 2px 6px; border-radius: 4px 0 0 4px;',
   'color: #f59e0b; background: #1c1c1c; font-weight: bold; padding: 2px 6px; border-radius: 0 4px 4px 0;'
 );

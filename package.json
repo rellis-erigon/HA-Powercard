@@ -1,6 +1,6 @@
 {
   "name": "ha-powercard",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "A Home Assistant custom card for visualizing electrical distribution board power flows",
   "main": "dist/ha-powercard.js",
   "repository": {
